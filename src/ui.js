@@ -1,5 +1,6 @@
 import { BLOCKS } from "./blocks.js";
 import { drawTileIcon } from "./textures.js";
+import { IS_TOUCH } from "./config.js";
 
 const ICON_TILE = {
   1: "grass_side",
@@ -18,7 +19,7 @@ const ICON_TILE = {
 };
 
 export class UI {
-  constructor({ atlas, hotbar, onContinue, onSave, onLoad, onNewWorld, onSelectSlot }) {
+  constructor({ atlas, hotbar, onContinue, onSave, onLoad, onNewWorld, onSelectSlot, onToggleMode, onPause }) {
     this.atlas = atlas;
     this.hotbar = hotbar;
     this.onContinue = onContinue;
@@ -26,19 +27,36 @@ export class UI {
     this.onLoad = onLoad;
     this.onNewWorld = onNewWorld;
     this.onSelectSlot = onSelectSlot;
+    this.onToggleMode = onToggleMode;
+    this.onPause = onPause;
 
     this.menu = document.getElementById("menu");
     this.hud = document.getElementById("hud");
     this.debug = document.getElementById("debug");
     this.toastEl = document.getElementById("toast");
     this.hotbarEl = document.getElementById("hotbar");
+    this.heartsEl = document.getElementById("hearts");
+    this.progressEl = document.getElementById("mine-progress");
+    this.progressFill = document.getElementById("mine-progress-fill");
+    this.flashEl = document.getElementById("damage-flash");
+    this.modeBtn = document.getElementById("mode-btn");
+    this.pauseBtn = document.getElementById("pause-btn");
 
     this.toastTimer = null;
-    this.mode = null;
+    this.flashTimer = null;
+    this.mode = "creative";
     this.selected = 0;
     this.seed = 0;
+    this.lastHealth = -1;
+    this.lastHealthVisible = null;
+
+    this.modeBtn.addEventListener("click", () => this.onToggleMode?.());
+    this.pauseBtn.classList.toggle("hidden", !IS_TOUCH);
+    this.pauseBtn.addEventListener("click", () => this.onPause?.());
 
     this.buildHotbar();
+    this.setMode("creative");
+    this.setHealth(20, false);
   }
 
   buildHotbar() {
@@ -82,12 +100,104 @@ export class UI {
     this.seed = seed;
   }
 
+  setMode(mode) {
+    this.mode = mode;
+    const creative = mode === "creative";
+    this.modeBtn.innerHTML = creative ? "✦ <b>Creativo</b>" : "⛏ <b>Supervivencia</b>";
+  }
+
+  setHealth(health, visible) {
+    if (!visible) {
+      if (this.lastHealthVisible !== false) {
+        this.heartsEl.classList.add("hidden");
+        this.lastHealthVisible = false;
+      }
+      return;
+    }
+    this.heartsEl.classList.remove("hidden");
+    if (this.lastHealth === health && this.lastHealthVisible === true) return;
+    this.lastHealth = health;
+    this.lastHealthVisible = true;
+    this.heartsEl.innerHTML = "";
+    const total = 10;
+    const per = 20 / total;
+    for (let i = 0; i < total; i++) {
+      const hp = health - i * per;
+      const heart = document.createElement("div");
+      heart.className = "heart";
+      const bg = document.createElement("span");
+      bg.className = "heart-bg";
+      bg.textContent = "♥";
+      const fill = document.createElement("span");
+      fill.className = "heart-fill";
+      fill.textContent = "♥";
+      fill.style.width = hp >= per ? "100%" : hp > 0 ? "50%" : "0%";
+      heart.appendChild(bg);
+      heart.appendChild(fill);
+      this.heartsEl.appendChild(heart);
+    }
+  }
+
+  setMiningProgress(value) {
+    if (value <= 0 || value >= 1) {
+      this.progressEl.classList.add("hidden");
+      this.progressFill.style.width = "0%";
+      return;
+    }
+    this.progressEl.classList.remove("hidden");
+    this.progressFill.style.width = `${Math.round(value * 100)}%`;
+  }
+
+  flashDamage() {
+    this.flashEl.classList.add("active");
+    clearTimeout(this.flashTimer);
+    this.flashTimer = setTimeout(() => this.flashEl.classList.remove("active"), 180);
+  }
+
   showHud() {
     this.hud.classList.remove("hidden");
   }
 
+  controlsFor(mode) {
+    if (IS_TOUCH) {
+      const rows = [
+        ["Joystick", "moverse"],
+        ["Arrastrar", "mirar"],
+        ["⤒", "saltar / nadar"],
+        ["⛏ (mantén)", "minar"],
+        ["▣", "colocar bloque"],
+        ["Barra inferior", "elegir bloque"],
+      ];
+      if (mode === "creative") rows.push(["✈", "volar (subir/bajar con ✈ y ⤒)"]);
+      return rows;
+    }
+    const rows = [
+      ["WASD", "moverse"],
+      ["Espacio", "saltar / nadar"],
+      ["Shift", "correr"],
+      ["Clic izq.", mode === "survival" ? "minar (mantén)" : "romper"],
+      ["Clic der.", "colocar"],
+      ["Rueda / 1-9", "bloque"],
+      ["Clic medio", "copiar bloque"],
+    ];
+    if (mode === "creative") {
+      rows.push(["F", "volar"]);
+      rows.push(["Ctrl / C", "bajar (volando)"]);
+    }
+    rows.push(["Esc", "pausa"]);
+    return rows;
+  }
+
+  renderControls(container, mode) {
+    container.innerHTML = "";
+    for (const [key, desc] of this.controlsFor(mode)) {
+      const k = document.createElement("span");
+      k.innerHTML = `<b>${key}</b> ${desc}`;
+      container.appendChild(k);
+    }
+  }
+
   showMenu(mode, options = {}) {
-    this.mode = mode;
     const ready = options.ready !== false;
     if (mode === "start") {
       this.menu.innerHTML = "";
@@ -95,20 +205,15 @@ export class UI {
       panel.className = "panel";
       panel.innerHTML = `
         <h1>VEXIO CRAFT</h1>
-        <p class="sub">Mundo infinito en tu navegador · semilla <b>${this.seed}</b></p>
+        <p class="sub">Mundo infinito en tu navegador · semilla <b>${this.seed}</b>${IS_TOUCH ? " · mejor en horizontal" : ""}</p>
         <div class="status" id="menu-status">${ready ? "" : "Generando mundo…"}</div>
-        <div class="controls">
-          <span><b>WASD</b> moverse</span><span><b>Espacio</b> saltar / nadar</span>
-          <span><b>Shift</b> correr</span><span><b>Ctrl / C</b> bajar (volando)</span>
-          <span><b>Clic izq.</b> romper</span><span><b>Clic der.</b> colocar</span>
-          <span><b>Rueda / 1-9</b> bloque</span><span><b>Clic medio</b> copiar bloque</span>
-          <span><b>F</b> volar</span><span><b>Esc</b> pausa</span>
-        </div>
+        <div class="controls" id="menu-controls"></div>
         <div class="buttons">
-          <button id="btn-play" ${ready ? "" : "disabled"}>${ready ? "Jugar" : "Cargando…"}</button>
+          <button id="btn-play" ${ready ? "" : "disabled"}>${ready ? (IS_TOUCH ? "Jugar" : "Jugar") : "Cargando…"}</button>
         </div>
       `;
       this.menu.appendChild(panel);
+      this.renderControls(panel.querySelector("#menu-controls"), this.mode);
       panel.querySelector("#btn-play").addEventListener("click", () => this.onContinue?.());
       this.statusEl = panel.querySelector("#menu-status");
     } else if (mode === "pause") {
@@ -117,22 +222,25 @@ export class UI {
       panel.className = "panel";
       panel.innerHTML = `
         <h2>Pausa</h2>
-        <p class="sub">Semilla <b>${this.seed}</b></p>
-        <div class="controls">
-          <span><b>WASD</b> moverse</span><span><b>Espacio</b> saltar</span>
-          <span><b>Shift</b> correr</span><span><b>F</b> volar</span>
-          <span><b>Clic izq.</b> romper</span><span><b>Clic der.</b> colocar</span>
-          <span><b>Esc</b> continuar</span><span><b>1-9 / rueda</b> bloque</span>
-        </div>
+        <p class="sub">Semilla <b>${this.seed}</b> · Modo <b>${this.mode === "survival" ? "Supervivencia" : "Creativo"}</b></p>
+        <div class="controls" id="menu-controls"></div>
         <div class="buttons">
           <button id="btn-continue">Continuar</button>
+          <button id="btn-mode" class="secondary">Cambiar a ${this.mode === "survival" ? "creativo" : "supervivencia"}</button>
+        </div>
+        <div class="buttons">
           <button id="btn-save" class="secondary">Guardar</button>
           <button id="btn-load" class="secondary">Cargar</button>
           <button id="btn-new" class="secondary">Mundo nuevo</button>
         </div>
       `;
       this.menu.appendChild(panel);
+      this.renderControls(panel.querySelector("#menu-controls"), this.mode);
       panel.querySelector("#btn-continue").addEventListener("click", () => this.onContinue?.());
+      panel.querySelector("#btn-mode").addEventListener("click", () => {
+        this.onToggleMode?.();
+        this.showMenu("pause");
+      });
       panel.querySelector("#btn-save").addEventListener("click", () => this.onSave?.());
       panel.querySelector("#btn-load").addEventListener("click", () => this.onLoad?.());
       panel.querySelector("#btn-new").addEventListener("click", () => this.onNewWorld?.());
@@ -152,7 +260,6 @@ export class UI {
 
   hideMenu() {
     this.menu.classList.add("hidden");
-    this.mode = null;
   }
 
   toast(text, duration = 2200) {

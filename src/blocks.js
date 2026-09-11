@@ -15,19 +15,19 @@ export const BEDROCK = 13;
 
 export const BLOCKS = {
   [AIR]: { name: "Aire", solid: false, opaque: false },
-  [GRASS]: { name: "Césped", solid: true, opaque: true, sound: "grass", tiles: { top: "grass_top", bottom: "dirt", side: "grass_side" } },
-  [DIRT]: { name: "Tierra", solid: true, opaque: true, sound: "dirt", tiles: { all: "dirt" } },
-  [STONE]: { name: "Piedra", solid: true, opaque: true, sound: "stone", tiles: { all: "stone" } },
-  [COBBLE]: { name: "Adoquín", solid: true, opaque: true, sound: "stone", tiles: { all: "cobble" } },
-  [SAND]: { name: "Arena", solid: true, opaque: true, sound: "sand", tiles: { all: "sand" } },
-  [WATER]: { name: "Agua", solid: false, opaque: false, liquid: true, sound: "water", tiles: { all: "water" } },
-  [LOG]: { name: "Tronco", solid: true, opaque: true, sound: "wood", tiles: { top: "log_top", bottom: "log_top", side: "log_side" } },
-  [LEAVES]: { name: "Hojas", solid: true, opaque: false, sound: "grass", tiles: { all: "leaves" } },
-  [PLANKS]: { name: "Madera", solid: true, opaque: true, sound: "wood", tiles: { all: "planks" } },
-  [GLASS]: { name: "Cristal", solid: true, opaque: false, sound: "glass", tiles: { all: "glass" } },
-  [BRICK]: { name: "Ladrillo", solid: true, opaque: true, sound: "stone", tiles: { all: "brick" } },
-  [SNOW]: { name: "Nieve", solid: true, opaque: true, sound: "snow", tiles: { all: "snow" } },
-  [BEDROCK]: { name: "Roca madre", solid: true, opaque: true, unbreakable: true, sound: "stone", tiles: { all: "bedrock" } },
+  [GRASS]: { name: "Césped", solid: true, opaque: true, sound: "grass", hardness: 0.35, tiles: { top: "grass_top", bottom: "dirt", side: "grass_side" } },
+  [DIRT]: { name: "Tierra", solid: true, opaque: true, sound: "dirt", hardness: 0.35, tiles: { all: "dirt" } },
+  [STONE]: { name: "Piedra", solid: true, opaque: true, sound: "stone", hardness: 1.15, tiles: { all: "stone" } },
+  [COBBLE]: { name: "Adoquín", solid: true, opaque: true, sound: "stone", hardness: 1.1, tiles: { all: "cobble" } },
+  [SAND]: { name: "Arena", solid: true, opaque: true, sound: "sand", hardness: 0.3, tiles: { all: "sand" } },
+  [WATER]: { name: "Agua", solid: false, opaque: false, liquid: true, sound: "water", hardness: Infinity, tiles: { all: "water" } },
+  [LOG]: { name: "Tronco", solid: true, opaque: true, sound: "wood", hardness: 0.7, tiles: { top: "log_top", bottom: "log_top", side: "log_side" } },
+  [LEAVES]: { name: "Hojas", solid: true, opaque: false, sound: "grass", hardness: 0.18, tiles: { all: "leaves" } },
+  [PLANKS]: { name: "Madera", solid: true, opaque: true, sound: "wood", hardness: 0.65, tiles: { all: "planks" } },
+  [GLASS]: { name: "Cristal", solid: true, opaque: false, sound: "glass", hardness: 0.22, tiles: { all: "glass" } },
+  [BRICK]: { name: "Ladrillo", solid: true, opaque: true, sound: "stone", hardness: 1.25, tiles: { all: "brick" } },
+  [SNOW]: { name: "Nieve", solid: true, opaque: true, sound: "snow", hardness: 0.25, tiles: { all: "snow" } },
+  [BEDROCK]: { name: "Roca madre", solid: true, opaque: true, unbreakable: true, sound: "stone", hardness: Infinity, tiles: { all: "bedrock" } },
 };
 
 export const HOTBAR = [GRASS, DIRT, STONE, COBBLE, SAND, LOG, PLANKS, LEAVES, GLASS];
@@ -46,6 +46,11 @@ export function isLiquid(id) {
 
 export function isUnbreakable(id) {
   return !!BLOCKS[id]?.unbreakable;
+}
+
+export function breakTime(id) {
+  const h = BLOCKS[id]?.hardness;
+  return Number.isFinite(h) && h > 0 ? h : 0.5;
 }
 
 export function faceTile(id, face) {

@@ -9,8 +9,11 @@ import {
   SPRINT_SPEED,
   FLY_SPEED,
   SWIM_SPEED,
+  MAX_HEALTH,
+  FALL_SAFE,
+  REGEN_DELAY,
 } from "./config.js";
-import { AIR, WATER, isSolid, isLiquid } from "./blocks.js";
+import { isSolid, isLiquid } from "./blocks.js";
 
 const EPS = 1e-4;
 
@@ -27,15 +30,21 @@ export class Player {
     this.half = PLAYER_WIDTH / 2;
     this.height = PLAYER_HEIGHT;
     this.eye = EYE_HEIGHT;
+    this.mode = "creative";
+    this.maxHealth = MAX_HEALTH;
+    this.health = MAX_HEALTH;
+    this.dead = false;
+    this.time = 0;
+    this.lastDamage = -99;
+    this.regenTimer = 0;
+    this.fallStart = null;
     this.walkedDistance = 0;
+    this.onDamage = null;
+    this.onDeath = null;
   }
 
   get eyePosition() {
     return new THREE.Vector3(this.pos.x, this.pos.y + this.eye, this.pos.z);
-  }
-
-  isBlockSolidAt(x, y, z) {
-    return isSolid(this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
   }
 
   collidesAt(x, y, z) {
@@ -65,28 +74,61 @@ export class Player {
     return maxX > bx && minX < bx + 1 && maxY > by && minY < by + 1 && maxZ > bz && minZ < bz + 1;
   }
 
+  damage(amount) {
+    if (this.mode !== "survival" || this.dead || amount <= 0) return;
+    this.health = Math.max(0, this.health - amount);
+    this.lastDamage = this.time;
+    this.regenTimer = 0;
+    this.onDamage?.(amount);
+    if (this.health <= 0) {
+      this.dead = true;
+      this.onDeath?.();
+    }
+  }
+
   respawn(spawn) {
     this.pos.set(spawn.x + 0.5, spawn.y, spawn.z + 0.5);
     this.vel.set(0, 0, 0);
     this.flying = false;
     this.onGround = false;
+    this.dead = false;
+    this.health = this.maxHealth;
+    this.lastDamage = this.time;
+    this.fallStart = null;
+    this.regenTimer = 0;
   }
 
-  update(dt, input, camera) {
+  update(dt, input) {
+    this.time += dt;
+
+    if (this.mode === "survival" && !this.dead && this.health < this.maxHealth) {
+      if (this.time - this.lastDamage > REGEN_DELAY) {
+        this.regenTimer += dt;
+        if (this.regenTimer >= 2) {
+          this.regenTimer = 0;
+          this.health = Math.min(this.maxHealth, this.health + 1);
+        }
+      } else {
+        this.regenTimer = 0;
+      }
+    }
+
+    const axes = input.getMoveAxes();
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const wish = new THREE.Vector3();
-    if (input.isDown("KeyW")) wish.add(forward);
-    if (input.isDown("KeyS")) wish.sub(forward);
-    if (input.isDown("KeyD")) wish.add(right);
-    if (input.isDown("KeyA")) wish.sub(right);
+    if (axes.y !== 0) wish.addScaledVector(forward, axes.y);
+    if (axes.x !== 0) wish.addScaledVector(right, axes.x);
     if (wish.lengthSq() > 0) wish.normalize();
 
     const sprinting = input.isDown("ShiftLeft") || input.isDown("ShiftRight");
-    const jump = input.isDown("Space");
+    const jump = input.isJump();
     this.inWater =
       isLiquid(this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.6), Math.floor(this.pos.z))) ||
       isLiquid(this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 1.4), Math.floor(this.pos.z)));
+
+    const canFly = this.mode === "creative";
+    if (!canFly) this.flying = false;
 
     if (this.flying) {
       const speed = sprinting ? FLY_SPEED * 1.8 : FLY_SPEED;
@@ -116,16 +158,14 @@ export class Player {
       this.vel.z = wish.z * speed;
     }
 
+    const onGroundAtStart = this.onGround;
     const startX = this.pos.x;
     const startZ = this.pos.z;
     const startY = this.pos.y;
 
     this.pos.x += this.vel.x * dt;
     if (this.collidesAt(this.pos.x, this.pos.y, this.pos.z)) {
-      const canStep =
-        this.onGround &&
-        !this.flying &&
-        !this.collidesAt(this.pos.x, this.pos.y + 1.02, this.pos.z);
+      const canStep = this.onGround && !this.flying && !this.collidesAt(this.pos.x, this.pos.y + 1.02, this.pos.z);
       if (canStep) {
         this.pos.y += 1.02;
       } else {
@@ -136,10 +176,7 @@ export class Player {
 
     this.pos.z += this.vel.z * dt;
     if (this.collidesAt(this.pos.x, this.pos.y, this.pos.z)) {
-      const canStep =
-        this.onGround &&
-        !this.flying &&
-        !this.collidesAt(this.pos.x, this.pos.y + 1.02, this.pos.z);
+      const canStep = this.onGround && !this.flying && !this.collidesAt(this.pos.x, this.pos.y + 1.02, this.pos.z);
       if (canStep) {
         this.pos.y += 1.02;
       } else {
@@ -163,10 +200,23 @@ export class Player {
       if (isSolid(below) && Math.abs(this.pos.y - (groundY + 1)) < 0.2) this.onGround = true;
     }
 
+    if (this.flying || this.inWater) {
+      this.fallStart = null;
+    } else {
+      if (onGroundAtStart && !this.onGround && this.fallStart === null) {
+        this.fallStart = this.pos.y;
+      }
+      if (!onGroundAtStart && this.onGround && this.fallStart !== null) {
+        const dist = this.fallStart - this.pos.y;
+        if (dist > FALL_SAFE + 0.4) this.damage(Math.floor(dist - FALL_SAFE));
+        this.fallStart = null;
+      }
+      if (this.onGround) this.fallStart = null;
+    }
+
     const dx = this.pos.x - startX;
     const dz = this.pos.z - startZ;
-    const moved = Math.sqrt(dx * dx + dz * dz);
-    this.walkedDistance += moved;
+    this.walkedDistance += Math.sqrt(dx * dx + dz * dz);
     if (this.pos.y < -12) this.respawn({ x: Math.floor(this.pos.x), z: Math.floor(this.pos.z), y: 46 });
   }
 }

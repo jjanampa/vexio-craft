@@ -2,7 +2,10 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>Vexio Craft</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%235CAB2E'/><rect y='10' width='16' height='6' fill='%238B5A2B'/></svg>" />
     <link rel="stylesheet" href="/src/style.css" />
@@ -11,12 +14,20 @@
     <div id="app"></div>
     <div id="hud" class="hidden">
       <div id="crosshair"></div>
+      <div id="mine-progress" class="hidden"><div id="mine-progress-fill"></div></div>
+      <div id="damage-flash"></div>
       <div id="debug"></div>
       <div id="hint">Esc · pausa</div>
+      <div id="top-buttons">
+        <button id="mode-btn" type="button">✦ <b>Creativo</b></button>
+        <button id="pause-btn" type="button" class="hidden">⏸</button>
+      </div>
+      <div id="hearts" class="hidden"></div>
       <div id="hotbar"></div>
     </div>
     <div id="menu"></div>
     <div id="toast" class="hidden"></div>
+    <div id="rotate-hint"><span>🔄</span>Gira el dispositivo</div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
