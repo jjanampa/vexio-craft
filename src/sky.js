@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { RENDER_DISTANCE, CHUNK_SIZE } from "./config.js";
+import { RENDER_DISTANCE, CHUNK_SIZE, IS_TOUCH } from "./config.js";
 import { mulberry32 } from "./noise.js";
 
 const SKY_VERTEX = `
@@ -21,6 +21,7 @@ void main() {
   float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
   vec3 color = mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0));
   gl_FragColor = vec4(color, 1.0);
+  #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
 `;
@@ -32,8 +33,8 @@ const PALETTES = {
     hemiSky: new THREE.Color(0xcfe6ff),
     hemiGround: new THREE.Color(0x4a5d3a),
     sun: new THREE.Color(0xfff3dd),
-    sunIntensity: 1.25,
-    hemiIntensity: 0.75,
+    sunIntensity: 1.3,
+    hemiIntensity: 0.72,
   },
   dusk: {
     top: new THREE.Color(0x2c3a6e),
@@ -41,7 +42,7 @@ const PALETTES = {
     hemiSky: new THREE.Color(0xffb98a),
     hemiGround: new THREE.Color(0x503b30),
     sun: new THREE.Color(0xffab5e),
-    sunIntensity: 0.85,
+    sunIntensity: 0.9,
     hemiIntensity: 0.55,
   },
   night: {
@@ -50,14 +51,28 @@ const PALETTES = {
     hemiSky: new THREE.Color(0x2a3c66),
     hemiGround: new THREE.Color(0x131a2a),
     sun: new THREE.Color(0x9fb6ff),
-    sunIntensity: 0.14,
-    hemiIntensity: 0.22,
+    sunIntensity: 0.16,
+    hemiIntensity: 0.24,
   },
 };
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
+}
+
+function makeRadialTexture(stops) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  for (const [pos, color] of stops) gradient.addColorStop(pos, color);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 128, 128);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
 
 export class Sky {
@@ -110,20 +125,67 @@ export class Sky {
     const stars = new THREE.Points(starGeometry, this.starMaterial);
     this.group.add(stars);
 
-    this.sun = new THREE.DirectionalLight(0xfff3dd, 1.25);
+    this.sunSprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: makeRadialTexture([
+          [0, "rgba(255,255,240,1)"],
+          [0.25, "rgba(255,240,190,0.95)"],
+          [0.55, "rgba(255,210,130,0.35)"],
+          [1, "rgba(255,180,90,0)"],
+        ]),
+        transparent: true,
+        depthWrite: false,
+        fog: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    this.sunSprite.scale.set(90, 90, 1);
+    this.group.add(this.sunSprite);
+
+    this.moonSprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: makeRadialTexture([
+          [0, "rgba(235,240,255,0.95)"],
+          [0.5, "rgba(210,220,245,0.85)"],
+          [0.62, "rgba(200,210,240,0.25)"],
+          [1, "rgba(190,200,235,0)"],
+        ]),
+        transparent: true,
+        depthWrite: false,
+        fog: false,
+      })
+    );
+    this.moonSprite.scale.set(46, 46, 1);
+    this.group.add(this.moonSprite);
+
+    this.sun = new THREE.DirectionalLight(0xfff3dd, 1.3);
     this.sun.target.position.set(0, 0, 0);
     scene.add(this.sun);
     scene.add(this.sun.target);
 
-    this.hemi = new THREE.HemisphereLight(0xcfe6ff, 0x4a5d3a, 0.75);
+    if (!IS_TOUCH) {
+      this.sun.castShadow = true;
+      const shadow = this.sun.shadow;
+      shadow.mapSize.set(2048, 2048);
+      shadow.camera.left = -70;
+      shadow.camera.right = 70;
+      shadow.camera.top = 70;
+      shadow.camera.bottom = -70;
+      shadow.camera.near = 10;
+      shadow.camera.far = 420;
+      shadow.bias = -0.0006;
+      shadow.normalBias = 0.06;
+    }
+
+    this.hemi = new THREE.HemisphereLight(0xcfe6ff, 0x4a5d3a, 0.72);
     scene.add(this.hemi);
 
-    const cloudCount = 220;
+    const cloudCount = 240;
     const cloudGeometry = new THREE.BoxGeometry(1, 1, 1);
     const cloudMaterial = new THREE.MeshLambertMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.86,
     });
     this.clouds = new THREE.InstancedMesh(cloudGeometry, cloudMaterial, cloudCount);
     this.clouds.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -132,10 +194,10 @@ export class Sky {
       this.cloudData.push({
         x: (rng() - 0.5) * 900,
         z: (rng() - 0.5) * 900,
-        y: 110 + rng() * 20,
-        sx: 10 + rng() * 22,
-        sy: 2 + rng() * 2.5,
-        sz: 10 + rng() * 22,
+        y: 108 + rng() * 24,
+        sx: 10 + rng() * 26,
+        sy: 2.5 + rng() * 3,
+        sz: 10 + rng() * 26,
       });
     }
     this.cloudOffset = 0;
@@ -149,13 +211,13 @@ export class Sky {
     this.tmpColor = new THREE.Color();
   }
 
-  update(dt, playerPos, time) {
+  update(dt, playerPos, time, camera) {
     const angle = (time - 0.25) * Math.PI * 2;
     const sunDir = new THREE.Vector3(Math.cos(angle) * 0.55, Math.sin(angle), 0.42).normalize();
     const elevation = sunDir.y;
 
-    const day = smoothstep(0.08, 0.3, elevation);
-    const dusk = Math.max(0, 1 - Math.abs(elevation) / 0.28) * (elevation > -0.25 ? 1 : 0);
+    const day = smoothstep(0.12, 0.4, elevation);
+    const dusk = Math.max(0, 1 - Math.abs(elevation) / 0.35) * (elevation > -0.3 ? 1 : 0);
     const night = 1 - smoothstep(-0.26, 0.0, elevation);
     const total = day + dusk + night || 1;
     const wDay = day / total;
@@ -195,6 +257,17 @@ export class Sky {
     this.sun.position.copy(playerPos).addScaledVector(lightDir, 160);
     this.sun.target.position.copy(playerPos);
     this.sun.target.updateMatrixWorld();
+
+    const sunVisible = elevation > -0.18;
+    this.sunSprite.visible = sunVisible;
+    if (sunVisible) {
+      this.sunSprite.position.copy(playerPos).addScaledVector(sunDir, 430);
+    }
+    const moonVisible = elevation < 0.18;
+    this.moonSprite.visible = moonVisible;
+    if (moonVisible) {
+      this.moonSprite.position.copy(playerPos).addScaledVector(sunDir.clone().negate(), 430);
+    }
 
     this.starMaterial.opacity = Math.min(1, wNight * 1.4);
 

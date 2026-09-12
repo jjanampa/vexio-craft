@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./config.js";
-import { AIR, BLOCKS, BEDROCK, faceTile, isOpaqueBlock } from "./blocks.js";
+import { AIR, BLOCKS, BEDROCK, WATER, faceTile, isOpaqueBlock } from "./blocks.js";
+import { hash2 } from "./noise.js";
 
 const CS = CHUNK_SIZE;
 
@@ -89,6 +90,9 @@ export function buildChunkGeometry(world, chunk, uvs) {
         const buffers = def.liquid ? groups.water : def.opaque ? groups.opaque : groups.alpha;
         const wx = bx0 + lx;
         const wz = bz0 + lz;
+        const waterTop =
+          def.liquid && (y + 1 >= WORLD_HEIGHT || world.getBlock(wx, y + 1, wz) !== WATER) ? 0.875 : 1;
+        const tint = def.liquid ? 1 : 0.94 + hash2(wx * 7 + 13, wz * 7 + 29, 8891) * 0.08;
 
         for (let f = 0; f < 6; f++) {
           const face = FACES[f];
@@ -106,9 +110,10 @@ export function buildChunkGeometry(world, chunk, uvs) {
 
           for (let v = 0; v < 4; v++) {
             const vert = face.verts[v];
-            buffers.positions.push(wx + vert[0], y + vert[1], wz + vert[2]);
+            const vy = vert[1] === 1 ? waterTop : 0;
+            buffers.positions.push(wx + vert[0], y + vy, wz + vert[2]);
             buffers.normals.push(face.n[0], face.n[1], face.n[2]);
-            let brightness = face.shade;
+            let brightness = face.shade * tint;
             if (!isWater) brightness *= vertexAO(world, wx, y, wz, face, vert);
             buffers.colors.push(brightness, brightness, brightness);
             const uc = UV_CORNERS[v];

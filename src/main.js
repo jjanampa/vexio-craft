@@ -18,8 +18,9 @@ import {
   isUnbreakable,
   isSolid,
   breakTime,
+  faceTile,
 } from "./blocks.js";
-import { createAtlas } from "./textures.js";
+import { createAtlas, createCrackStrip, averageTileColors } from "./textures.js";
 import { World } from "./world.js";
 import { buildChunkGeometry, disposeChunkMeshes } from "./mesher.js";
 import { Player } from "./player.js";
@@ -33,10 +34,18 @@ const app = document.getElementById("app");
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_TOUCH ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.NeutralToneMapping ?? THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+if (!IS_TOUCH) {
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+}
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xbfe0ff, RENDER_DISTANCE * CHUNK_SIZE * 0.5, RENDER_DISTANCE * CHUNK_SIZE * 0.95);
+const FOG_NEAR = RENDER_DISTANCE * CHUNK_SIZE * 0.5;
+const FOG_FAR = RENDER_DISTANCE * CHUNK_SIZE * 0.95;
+scene.fog = new THREE.Fog(0xbfe0ff, FOG_NEAR, FOG_FAR);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 900);
 camera.rotation.order = "YXZ";
@@ -44,17 +53,24 @@ camera.rotation.order = "YXZ";
 const atlas = createAtlas();
 const texture = new THREE.CanvasTexture(atlas.canvas);
 texture.magFilter = THREE.NearestFilter;
-texture.minFilter = THREE.NearestFilter;
-texture.generateMipmaps = false;
+texture.minFilter = THREE.LinearMipmapLinearFilter;
+texture.generateMipmaps = true;
 texture.colorSpace = THREE.SRGBColorSpace;
+texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 
 const materialOpaque = new THREE.MeshLambertMaterial({ map: texture, vertexColors: true });
+const alphaDepthMaterial = new THREE.MeshDepthMaterial({
+  depthPacking: THREE.RGBADepthPacking,
+  map: texture,
+  alphaTest: 0.5,
+});
 const materialAlpha = new THREE.MeshLambertMaterial({
   map: texture,
   vertexColors: true,
   alphaTest: 0.5,
   side: THREE.DoubleSide,
 });
+let waterShader = null;
 const materialWater = new THREE.MeshLambertMaterial({
   map: texture,
   vertexColors: true,
@@ -63,6 +79,16 @@ const materialWater = new THREE.MeshLambertMaterial({
   depthWrite: false,
   side: THREE.DoubleSide,
 });
+materialWater.onBeforeCompile = (shader) => {
+  shader.uniforms.uTime = { value: 0 };
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", "#include <common>\nuniform float uTime;")
+    .replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\nfloat wave = sin(uTime * 1.5 + transformed.x * 0.55 + transformed.z * 0.45) + sin(uTime * 0.9 + transformed.x * 0.21 - transformed.z * 0.33);\ntransformed.y += wave * 0.02;"
+    );
+  waterShader = shader;
+};
 
 const outline = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
@@ -70,6 +96,118 @@ const outline = new THREE.LineSegments(
 );
 outline.visible = false;
 scene.add(outline);
+
+const crackTexture = new THREE.CanvasTexture(createCrackStrip());
+crackTexture.magFilter = THREE.NearestFilter;
+crackTexture.minFilter = THREE.LinearFilter;
+crackTexture.generateMipmaps = false;
+crackTexture.colorSpace = THREE.SRGBColorSpace;
+crackTexture.wrapS = THREE.ClampToEdgeWrapping;
+crackTexture.wrapT = THREE.ClampToEdgeWrapping;
+crackTexture.repeat.set(0.096, 1);
+const crackMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(1.006, 1.006, 1.006),
+  new THREE.MeshBasicMaterial({
+    map: crackTexture,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  })
+);
+crackMesh.visible = false;
+crackMesh.renderOrder = 2;
+scene.add(crackMesh);
+let crackStage = -1;
+
+function setCrack(progress, target) {
+  if (progress <= 0 || progress >= 1 || !target) {
+    crackMesh.visible = false;
+    crackStage = -1;
+    return;
+  }
+  const stage = Math.min(9, Math.floor(progress * 10));
+  if (stage !== crackStage) {
+    crackStage = stage;
+    crackTexture.offset.x = stage * 0.1 + 0.002;
+  }
+  crackMesh.visible = true;
+  crackMesh.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
+}
+
+const tileColors = averageTileColors(atlas);
+const PARTICLE_COUNT = 140;
+const particleGeometry = new THREE.BoxGeometry(0.13, 0.13, 0.13);
+const particleMaterial = new THREE.MeshLambertMaterial();
+const particles = new THREE.InstancedMesh(particleGeometry, particleMaterial, PARTICLE_COUNT);
+particles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+particles.frustumCulled = false;
+scene.add(particles);
+const particleData = new Array(PARTICLE_COUNT).fill(null);
+const particleDummy = new THREE.Object3D();
+const particleColor = new THREE.Color();
+
+function spawnParticles(x, y, z, blockId, count, speed) {
+  const tile = faceTile(blockId, 4) || faceTile(blockId, 2) || "stone";
+  const rgb = tileColors[tile] || [1, 1, 1];
+  for (let i = 0; i < count; i++) {
+    const slot = particleData.findIndex((p) => p === null);
+    if (slot === -1) return;
+    particleData[slot] = {
+      pos: new THREE.Vector3(x + Math.random(), y + Math.random(), z + Math.random()),
+      vel: new THREE.Vector3(
+        (Math.random() - 0.5) * speed,
+        speed * 0.3 + Math.random() * speed * 0.7,
+        (Math.random() - 0.5) * speed
+      ),
+      life: 0,
+      maxLife: 0.55 + Math.random() * 0.55,
+      size: 0.7 + Math.random() * 0.7,
+    };
+    particleColor.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+    particles.setColorAt(slot, particleColor);
+  }
+  if (particles.instanceColor) particles.instanceColor.needsUpdate = true;
+}
+
+function updateParticles(dt) {
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const data = particleData[i];
+    if (data) {
+      data.life += dt;
+      if (data.life >= data.maxLife) {
+        particleData[i] = null;
+        particleDummy.position.set(0, -600, 0);
+        particleDummy.scale.setScalar(0);
+        particleDummy.rotation.set(0, 0, 0);
+        particleDummy.updateMatrix();
+        particles.setMatrixAt(i, particleDummy.matrix);
+        continue;
+      }
+      data.vel.y -= 18 * dt;
+      data.pos.addScaledVector(data.vel, dt);
+      const ground = world.getBlock(
+        Math.floor(data.pos.x),
+        Math.floor(data.pos.y - 0.06),
+        Math.floor(data.pos.z)
+      );
+      if (isSolid(ground) && data.vel.y < 0) {
+        data.pos.y = Math.floor(data.pos.y - 0.06) + 1.08;
+        data.vel.y *= -0.28;
+        data.vel.x *= 0.55;
+        data.vel.z *= 0.55;
+      }
+      const fade = 1 - data.life / data.maxLife;
+      particleDummy.position.copy(data.pos);
+      particleDummy.scale.setScalar(data.size * fade);
+      particleDummy.rotation.set(data.life * 3.2, data.life * 2.4, data.life * 1.7);
+      particleDummy.updateMatrix();
+      particles.setMatrixAt(i, particleDummy.matrix);
+    }
+  }
+  particles.instanceMatrix.needsUpdate = true;
+}
 
 const sky = new Sky(scene);
 
@@ -91,6 +229,9 @@ let fps = 0;
 let frameCount = 0;
 let fpsTimer = 0;
 let stepOdometer = 0;
+let elapsed = 0;
+let underwater = false;
+const underwaterEl = document.getElementById("underwater");
 
 const sfx = new Sfx();
 const ui = new UI({
@@ -245,9 +386,22 @@ function rebuildChunk(chunk) {
   disposeChunkMeshes(chunk, scene);
   const parts = buildChunkGeometry(world, chunk, atlas.uvs);
   const meshes = [];
-  if (parts.opaque) meshes.push(new THREE.Mesh(parts.opaque, materialOpaque));
-  if (parts.alpha) meshes.push(new THREE.Mesh(parts.alpha, materialAlpha));
-  if (parts.water) meshes.push(new THREE.Mesh(parts.water, materialWater));
+  if (parts.opaque) {
+    const mesh = new THREE.Mesh(parts.opaque, materialOpaque);
+    mesh.castShadow = !IS_TOUCH;
+    mesh.receiveShadow = !IS_TOUCH;
+    meshes.push(mesh);
+  }
+  if (parts.alpha) {
+    const mesh = new THREE.Mesh(parts.alpha, materialAlpha);
+    mesh.castShadow = !IS_TOUCH;
+    mesh.receiveShadow = !IS_TOUCH;
+    mesh.customDepthMaterial = alphaDepthMaterial;
+    meshes.push(mesh);
+  }
+  if (parts.water) {
+    meshes.push(new THREE.Mesh(parts.water, materialWater));
+  }
   for (const mesh of meshes) {
     mesh.matrixAutoUpdate = false;
     scene.add(mesh);
@@ -349,12 +503,14 @@ function resetMining() {
   miningProgress = 0;
   miningSound = 0;
   ui.setMiningProgress(0);
+  setCrack(0);
 }
 
 function breakBlock(t) {
   if (isUnbreakable(t.block)) return;
   world.setBlock(t.x, t.y, t.z, AIR);
   sfx.play("break", t.block);
+  spawnParticles(t.x, t.y, t.z, t.block, 10, 2.4);
 }
 
 function updateMining(dt) {
@@ -384,9 +540,12 @@ function updateMining(dt) {
   miningSound -= dt;
   if (miningSound <= 0) {
     sfx.step(target.block);
+    spawnParticles(target.x, target.y, target.z, target.block, 2, 1.1);
     miningSound = 0.22;
   }
-  ui.setMiningProgress(miningProgress);
+  const clamped = Math.min(miningProgress, 1);
+  ui.setMiningProgress(clamped);
+  setCrack(clamped, target);
   if (miningProgress >= 1) {
     breakBlock(target);
     resetMining();
@@ -416,6 +575,7 @@ function tryPlace() {
   }
   world.setBlock(x, y, z, id);
   sfx.play("place", id);
+  spawnParticles(x, y, z, id, 5, 1.4);
   placeCooldown = 0.22;
 }
 
@@ -536,11 +696,23 @@ function updatePhysics(dt) {
   if (player.inWater && Math.random() < 0.04) sfx.play("splash", WATER);
 }
 
-function updateCamera() {
+function updateCamera(dt) {
   const eye = player.eyePosition;
   camera.position.copy(eye);
+  let bob = 0;
+  if (started && player.onGround && !player.flying) {
+    const speed = Math.hypot(player.vel.x, player.vel.z);
+    if (speed > 0.6) bob = Math.sin(player.walkedDistance * 2.6) * 0.045 * Math.min(1, speed / 6);
+  }
+  camera.position.y += bob;
   camera.rotation.y = player.yaw;
   camera.rotation.x = player.pitch;
+  const sprinting = input.isDown("ShiftLeft") || input.isDown("ShiftRight");
+  const targetFov = started && sprinting && !player.flying ? 82 : 75;
+  if (Math.abs(camera.fov - targetFov) > 0.05) {
+    camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 8);
+    camera.updateProjectionMatrix();
+  }
 }
 
 function handleMouseLook() {
@@ -562,7 +734,7 @@ function updateHud(dt) {
     frameCount = 0;
     fpsTimer = 0;
   }
-  const hour = ((timeOfDay + 0.25) % 1) * 24;
+  const hour = (timeOfDay % 1) * 24;
   const hh = String(Math.floor(hour)).padStart(2, "0");
   const mm = String(Math.floor((hour % 1) * 60)).padStart(2, "0");
   const targetName = currentTarget ? BLOCKS[currentTarget.block]?.name || "?" : "—";
@@ -578,6 +750,23 @@ function updateHud(dt) {
   ui.setHealth(player.health, mode === "survival" && started);
 }
 
+function updateUnderwater() {
+  const eye = camera.position;
+  const inWater = isLiquid(world.getBlock(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z)));
+  if (inWater !== underwater) {
+    underwater = inWater;
+    underwaterEl.classList.toggle("hidden", !inWater);
+  }
+  if (underwater) {
+    scene.fog.color.setHex(0x1b5e94);
+    scene.fog.near = 0.6;
+    scene.fog.far = 26;
+  } else {
+    scene.fog.near = FOG_NEAR;
+    scene.fog.far = FOG_FAR;
+  }
+}
+
 const clock = new THREE.Clock();
 
 function frame() {
@@ -586,14 +775,18 @@ function frame() {
 
   handleMouseLook();
   updatePhysics(dt);
-  updateCamera();
+  updateCamera(dt);
   updateTarget();
   updateMining(dt);
   updatePlace(dt);
+  elapsed += dt;
+  if (waterShader) waterShader.uniforms.uTime.value = elapsed;
   timeOfDay = (timeOfDay + dt / DAY_LENGTH) % 1;
   sky.update(dt, player.pos, timeOfDay);
   scene.fog.color.copy(sky.fogColor);
+  updateUnderwater();
   streamChunks();
+  updateParticles(dt);
   updateHud(dt);
 
   if (started) {
@@ -644,6 +837,9 @@ if (typeof window !== "undefined") {
     setMode(next) {
       setMode(next);
     },
+    setTime(value) {
+      timeOfDay = ((value % 1) + 1) % 1;
+    },
     start() {
       started = true;
       input.setTouchUiVisible(true);
@@ -659,6 +855,12 @@ if (typeof window !== "undefined") {
     },
     get edits() {
       return world.edits.size;
+    },
+    get miningHeld() {
+      return input.isMiningHeld();
+    },
+    get miningProgress() {
+      return miningProgress;
     },
     get time() {
       return timeOfDay;
