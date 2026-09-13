@@ -22,6 +22,36 @@ const UV_CORNERS = [
 ];
 
 const AO_LEVELS = [0.46, 0.68, 0.85, 1.0];
+const TOP_GRID = CS + 2;
+
+function buildTopMap(world, bx0, bz0) {
+  const map = new Int16Array(TOP_GRID * TOP_GRID);
+  for (let dz = -1; dz <= CS; dz++) {
+    for (let dx = -1; dx <= CS; dx++) {
+      const wx = bx0 + dx;
+      const wz = bz0 + dz;
+      let top = 0;
+      for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
+        const id = world.getBlock(wx, y, wz);
+        if (isOpaqueBlock(id)) {
+          top = y;
+          break;
+        }
+      }
+      map[(dz + 1) * TOP_GRID + (dx + 1)] = top;
+    }
+  }
+  return map;
+}
+
+function skyShade(topMap, bx0, bz0, x, y, z) {
+  const dx = Math.floor(x) - bx0 + 1;
+  const dz = Math.floor(z) - bz0 + 1;
+  if (dx < 0 || dx >= TOP_GRID || dz < 0 || dz >= TOP_GRID) return 1;
+  const depth = topMap[dz * TOP_GRID + dx] - y;
+  if (depth <= 1) return 1;
+  return Math.max(0.52, 1 - (depth - 1) * 0.06);
+}
 
 function faceVisible(self, other) {
   if (other === AIR) return true;
@@ -79,6 +109,7 @@ export function buildChunkGeometry(world, chunk, uvs) {
   const bx0 = chunk.cx * CS;
   const bz0 = chunk.cz * CS;
   const blocks = chunk.blocks;
+  const topMap = buildTopMap(world, bx0, bz0);
 
   for (let y = 0; y < WORLD_HEIGHT; y++) {
     for (let lz = 0; lz < CS; lz++) {
@@ -115,6 +146,7 @@ export function buildChunkGeometry(world, chunk, uvs) {
             buffers.normals.push(face.n[0], face.n[1], face.n[2]);
             let brightness = face.shade * tint;
             if (!isWater) brightness *= vertexAO(world, wx, y, wz, face, vert);
+            brightness *= skyShade(topMap, bx0, bz0, wx + vert[0], y + vy, wz + vert[2]);
             buffers.colors.push(brightness, brightness, brightness);
             const uc = UV_CORNERS[v];
             const u = uc[0] === 0 ? rect.u0 : rect.u1;

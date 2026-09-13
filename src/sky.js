@@ -28,13 +28,13 @@ void main() {
 
 const PALETTES = {
   day: {
-    top: new THREE.Color(0x3f7fe8),
-    bottom: new THREE.Color(0xbfe0ff),
-    hemiSky: new THREE.Color(0xcfe6ff),
+    top: new THREE.Color(0x5b8ff0),
+    bottom: new THREE.Color(0xcfe4ff),
+    hemiSky: new THREE.Color(0xdfeaff),
     hemiGround: new THREE.Color(0x4a5d3a),
     sun: new THREE.Color(0xfff3dd),
-    sunIntensity: 1.3,
-    hemiIntensity: 0.72,
+    sunIntensity: 1.25,
+    hemiIntensity: 0.7,
   },
   dusk: {
     top: new THREE.Color(0x2c3a6e),
@@ -47,12 +47,12 @@ const PALETTES = {
   },
   night: {
     top: new THREE.Color(0x030714),
-    bottom: new THREE.Color(0x0b1430),
-    hemiSky: new THREE.Color(0x2a3c66),
-    hemiGround: new THREE.Color(0x131a2a),
+    bottom: new THREE.Color(0x0d1838),
+    hemiSky: new THREE.Color(0x33477a),
+    hemiGround: new THREE.Color(0x1a2336),
     sun: new THREE.Color(0x9fb6ff),
-    sunIntensity: 0.16,
-    hemiIntensity: 0.24,
+    sunIntensity: 0.22,
+    hemiIntensity: 0.34,
   },
 };
 
@@ -61,17 +61,99 @@ function smoothstep(edge0, edge1, x) {
   return t * t * (3 - 2 * t);
 }
 
-function makeRadialTexture(stops) {
+function makeSunTexture() {
   const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 128;
+  canvas.width = 32;
+  canvas.height = 32;
   const ctx = canvas.getContext("2d");
-  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  for (const [pos, color] of stops) gradient.addColorStop(pos, color);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 128, 128);
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, 32, 32);
+  ctx.fillStyle = "#fffbe0";
+  ctx.fillRect(4, 0, 24, 32);
+  ctx.fillRect(0, 4, 32, 24);
+  ctx.fillStyle = "#fff4b8";
+  ctx.fillRect(6, 2, 20, 28);
+  ctx.fillRect(2, 6, 28, 20);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(10, 6, 12, 12);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  return texture;
+}
+
+function makeMoonTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, 32, 32);
+  ctx.fillStyle = "#e9edf5";
+  ctx.fillRect(4, 0, 24, 32);
+  ctx.fillRect(0, 4, 32, 24);
+  ctx.fillStyle = "#c8d0de";
+  const craters = [
+    [7, 8, 4, 3],
+    [18, 6, 5, 4],
+    [10, 16, 6, 5],
+    [19, 19, 4, 4],
+    [6, 21, 3, 3],
+  ];
+  for (const [x, y, w, h] of craters) {
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = "#aeb8c9";
+    ctx.fillRect(x, y, w, 1);
+    ctx.fillStyle = "#c8d0de";
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  return texture;
+}
+
+function makeCloudTexture() {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, size, size);
+  const rng = mulberry32(20240913);
+  const cell = 16;
+  const grid = size / cell;
+  const solid = Array.from({ length: grid }, () => new Array(grid).fill(false));
+  for (let y = 0; y < grid; y++) {
+    for (let x = 0; x < grid; x++) {
+      if (rng() < 0.08) solid[y][x] = true;
+    }
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < grid; y++) {
+      for (let x = 0; x < grid; x++) {
+        if (solid[y][x]) continue;
+        const near =
+          solid[(y + 1) % grid][x] ||
+          solid[(y - 1 + grid) % grid][x] ||
+          solid[y][(x + 1) % grid] ||
+          solid[y][(x - 1 + grid) % grid];
+        if (near && rng() < 0.28) solid[y][x] = true;
+      }
+    }
+  }
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  for (let y = 0; y < grid; y++) {
+    for (let x = 0; x < grid; x++) {
+      if (solid[y][x]) ctx.fillRect(x * cell, y * cell, cell, cell);
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.repeat.set(5, 5);
   return texture;
 }
 
@@ -127,35 +209,24 @@ export class Sky {
 
     this.sunSprite = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: makeRadialTexture([
-          [0, "rgba(255,255,240,1)"],
-          [0.25, "rgba(255,240,190,0.95)"],
-          [0.55, "rgba(255,210,130,0.35)"],
-          [1, "rgba(255,180,90,0)"],
-        ]),
+        map: makeSunTexture(),
         transparent: true,
         depthWrite: false,
         fog: false,
-        blending: THREE.AdditiveBlending,
       })
     );
-    this.sunSprite.scale.set(90, 90, 1);
+    this.sunSprite.scale.set(56, 56, 1);
     this.group.add(this.sunSprite);
 
     this.moonSprite = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: makeRadialTexture([
-          [0, "rgba(235,240,255,0.95)"],
-          [0.5, "rgba(210,220,245,0.85)"],
-          [0.62, "rgba(200,210,240,0.25)"],
-          [1, "rgba(190,200,235,0)"],
-        ]),
+        map: makeMoonTexture(),
         transparent: true,
         depthWrite: false,
         fog: false,
       })
     );
-    this.moonSprite.scale.set(46, 46, 1);
+    this.moonSprite.scale.set(42, 42, 1);
     this.group.add(this.moonSprite);
 
     this.sun = new THREE.DirectionalLight(0xfff3dd, 1.3);
@@ -180,30 +251,19 @@ export class Sky {
     this.hemi = new THREE.HemisphereLight(0xcfe6ff, 0x4a5d3a, 0.72);
     scene.add(this.hemi);
 
-    const cloudCount = 240;
-    const cloudGeometry = new THREE.BoxGeometry(1, 1, 1);
-    const cloudMaterial = new THREE.MeshLambertMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.86,
+    this.cloudTexture = makeCloudTexture();
+    this.cloudMaterial = new THREE.MeshBasicMaterial({
+      map: this.cloudTexture,
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+      fog: false,
     });
-    this.clouds = new THREE.InstancedMesh(cloudGeometry, cloudMaterial, cloudCount);
-    this.clouds.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.cloudData = [];
-    for (let i = 0; i < cloudCount; i++) {
-      this.cloudData.push({
-        x: (rng() - 0.5) * 900,
-        z: (rng() - 0.5) * 900,
-        y: 108 + rng() * 24,
-        sx: 10 + rng() * 26,
-        sy: 2.5 + rng() * 3,
-        sz: 10 + rng() * 26,
-      });
-    }
-    this.cloudOffset = 0;
-    this.cloudMatrix = new THREE.Matrix4();
-    scene.add(this.clouds);
+    this.clouds = new THREE.Mesh(new THREE.PlaneGeometry(1024, 1024), this.cloudMaterial);
+    this.clouds.rotation.x = -Math.PI / 2;
+    this.clouds.position.y = 126;
+    this.group.add(this.clouds);
 
+    this.brightness = 1;
     this.fogColor = new THREE.Color(0xbfe0ff);
     this.near = RENDER_DISTANCE * CHUNK_SIZE * 0.5;
     this.far = RENDER_DISTANCE * CHUNK_SIZE * 0.95;
@@ -273,16 +333,11 @@ export class Sky {
 
     this.group.position.copy(playerPos);
 
-    this.cloudOffset = (this.cloudOffset + dt * 1.6) % 900;
-    for (let i = 0; i < this.cloudData.length; i++) {
-      const c = this.cloudData[i];
-      const relX = (((c.x + this.cloudOffset - playerPos.x) % 900) + 900) % 900 - 450;
-      const relZ = (((c.z - playerPos.z) % 900) + 900) % 900 - 450;
-      this.cloudMatrix.makeScale(c.sx, c.sy, c.sz);
-      this.cloudMatrix.setPosition(playerPos.x + relX, c.y, playerPos.z + relZ);
-      this.clouds.setMatrixAt(i, this.cloudMatrix);
-    }
-    this.clouds.instanceMatrix.needsUpdate = true;
+    this.cloudTexture.offset.x = (this.cloudTexture.offset.x + dt * 0.0007) % 1;
+    const cloudShade = Math.min(1, 0.05 + wDay * 0.95 + wDusk * 0.38);
+    this.cloudMaterial.color.setScalar(cloudShade);
+
+    this.brightness = Math.min(1, 0.22 + wDay * 0.78 + wDusk * 0.5);
 
     return sunDir;
   }

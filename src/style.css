@@ -56,9 +56,10 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   transform: translate(-50%, -50%);
+  mix-blend-mode: difference;
   opacity: 0.85;
 }
 
@@ -67,23 +68,20 @@ body {
   content: "";
   position: absolute;
   background: #fff;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
 }
 
 #crosshair::before {
-  left: 50%;
+  left: 9px;
   top: 0;
   width: 2px;
   height: 100%;
-  transform: translateX(-50%);
 }
 
 #crosshair::after {
-  top: 50%;
+  top: 9px;
   left: 0;
   height: 2px;
   width: 100%;
-  transform: translateY(-50%);
 }
 
 #mine-progress {

@@ -31,6 +31,7 @@ import { Sky } from "./sky.js";
 import { saveGame, loadGame, hasSave } from "./storage.js";
 import { Net } from "./net.js";
 import { RemotePlayers } from "./remotePlayers.js";
+import { Hand } from "./hand.js";
 
 const app = document.getElementById("app");
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -49,7 +50,7 @@ const FOG_NEAR = RENDER_DISTANCE * CHUNK_SIZE * 0.5;
 const FOG_FAR = RENDER_DISTANCE * CHUNK_SIZE * 0.95;
 scene.fog = new THREE.Fog(0xbfe0ff, FOG_NEAR, FOG_FAR);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 900);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 900);
 camera.rotation.order = "YXZ";
 
 const atlas = createAtlas();
@@ -91,6 +92,9 @@ materialWater.onBeforeCompile = (shader) => {
     );
   waterShader = shader;
 };
+
+const hand = new Hand(atlas, texture);
+hand.setBlock(HOTBAR[0]);
 
 const outline = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
@@ -628,6 +632,7 @@ function breakBlock(t) {
   if (isUnbreakable(t.block)) return;
   world.setBlock(t.x, t.y, t.z, AIR);
   if (mpActive) net.sendEdit(t.x, t.y, t.z, AIR);
+  hand.triggerSwing();
   sfx.play("break", t.block);
   spawnParticles(t.x, t.y, t.z, t.block, 10, 2.4);
 }
@@ -659,6 +664,7 @@ function updateMining(dt) {
   miningSound -= dt;
   if (miningSound <= 0) {
     sfx.step(target.block);
+    hand.triggerSwing();
     spawnParticles(target.x, target.y, target.z, target.block, 2, 1.1);
     miningSound = 0.22;
   }
@@ -694,6 +700,7 @@ function tryPlace() {
   }
   world.setBlock(x, y, z, id);
   if (mpActive) net.sendEdit(x, y, z, id);
+  hand.triggerSwing();
   sfx.play("place", id);
   spawnParticles(x, y, z, id, 5, 1.4);
   placeCooldown = 0.22;
@@ -712,6 +719,7 @@ function pickBlock() {
 function selectSlot(i) {
   selectedSlot = i;
   ui.select(i);
+  hand.setBlock(HOTBAR[i]);
   sfx.click();
 }
 
@@ -832,7 +840,7 @@ function updateCamera(dt) {
   camera.rotation.y = player.yaw;
   camera.rotation.x = player.pitch;
   const sprinting = input.isDown("ShiftLeft") || input.isDown("ShiftRight");
-  const targetFov = started && sprinting && !player.flying ? 82 : 75;
+  const targetFov = started && sprinting && !player.flying ? 80 : 70;
   if (Math.abs(camera.fov - targetFov) > 0.05) {
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 8);
     camera.updateProjectionMatrix();
@@ -936,13 +944,17 @@ function frame() {
     }
   }
 
+  const moving = started && !player.flying && Math.hypot(player.vel.x, player.vel.z) > 0.8;
+  hand.update(dt, moving, sky.brightness);
   renderer.render(scene, camera);
+  if (started) hand.render(renderer);
 }
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  hand.resize(window.innerWidth / window.innerHeight);
 });
 
 window.addEventListener("pointerdown", () => sfx.resume(), { once: true });

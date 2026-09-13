@@ -8,8 +8,9 @@ Juego voxel estilo Minecraft en el navegador (Three.js + Vite), desplegado en ht
 - [x] **2. Supervivencia y móvil**: vida, daño por caída, minado por tiempo, controles táctiles (joystick, botones), modo creativo/supervivencia.
 - [x] **3. Gráficos**: texturas 32px con mipmaps, sombras, tone mapping, ciclo día/noche con sol y luna, agua animada, grietas de minado, partículas.
 - [x] **4. Multijugador**: servidor Node + WebSocket en el mismo dominio (`/ws`), semilla y ediciones autoritativas con persistencia en disco, jugadores remotos con nombre e interpolación, reconexión automática, chat de nombres. Modo un jugador como respaldo si el servidor no responde.
+- [x] **5. Fidelidad visual estilo Minecraft**: texturas pixel art 16×16, bloque en la mano con animación de golpe y balanceo, nubes planas de bloques, sol y luna cuadrados, cielo con paletas día/atardecer/noche, oscurecimiento de cuevas por profundidad, crosshair con mezcla por diferencia, FOV 70.
 
-## Siguientes ideas (etapa 5)
+## Siguientes ideas (etapa 6)
 
 - [ ] Chat de texto entre jugadores.
 - [ ] Sincronizar hora del día y clima desde el servidor.
