@@ -29,6 +29,8 @@ import { UI } from "./ui.js";
 import { Sfx } from "./audio.js";
 import { Sky } from "./sky.js";
 import { saveGame, loadGame, hasSave } from "./storage.js";
+import { Net } from "./net.js";
+import { RemotePlayers } from "./remotePlayers.js";
 
 const app = document.getElementById("app");
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -210,6 +212,40 @@ function updateParticles(dt) {
 }
 
 const sky = new Sky(scene);
+const remotePlayers = new RemotePlayers(scene);
+
+const NAME_KEY = "vexio-craft-name-v1";
+const MP_TIMEOUT = 3500;
+
+function loadName() {
+  try {
+    return localStorage.getItem(NAME_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeName(name) {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {}
+}
+
+function randomName() {
+  return "Vexio" + Math.floor(100 + Math.random() * 900);
+}
+
+function sanitizeName(raw) {
+  return String(raw || "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, 16);
+}
+
+let playerName = loadName() || randomName();
+let mpActive = false;
+let mpDecided = false;
+let stateTimer = 0;
 
 let world;
 let player;
@@ -263,6 +299,16 @@ const ui = new UI({
       doSave(false);
     }
   },
+  onNameChange: (raw) => {
+    const name = sanitizeName(raw) || randomName();
+    playerName = name;
+    storeName(name);
+    ui.setPlayerName(name);
+    if (mpActive) {
+      net.rename(name);
+      ui.toast(`Ahora eres ${name}`);
+    }
+  },
 });
 
 const input = new Input(renderer.domElement, {
@@ -295,6 +341,80 @@ const input = new Input(renderer.domElement, {
   },
 });
 
+const net = new Net({
+  onWelcome: (msg) => handleWelcome(msg),
+  onJoin: (p) => {
+    remotePlayers.upsert(p);
+    if (mpActive) ui.toast(`${p.name} se unió`);
+  },
+  onLeave: (id, name) => {
+    const entry = remotePlayers.map.get(id);
+    remotePlayers.remove(id);
+    if (mpActive) ui.toast(`${entry?.name || name || "Un jugador"} salió`);
+  },
+  onRename: (id, name) => remotePlayers.rename(id, name),
+  onState: (list) => {
+    for (const p of list) {
+      if (p.id === net.id) continue;
+      remotePlayers.upsert(p);
+    }
+    remotePlayers.prune(list, net.id);
+    ui.setMultiplayer(true, remotePlayers.count + 1);
+  },
+  onEdit: (msg) => applyRemoteEdit(msg),
+  onStatus: (connected, wasConnected) => {
+    if (!wasConnected) return;
+    ui.toast("Conexión perdida, reconectando…", 3000);
+  },
+});
+
+function handleWelcome(msg) {
+  mpDecided = true;
+  mpActive = true;
+  ui.setMultiplayer(true, msg.players.length + 1);
+  if (!ready) {
+    world = new World(msg.seed);
+    world.loadEdits(msg.edits || []);
+    ui.setSeed(msg.seed);
+    player = new Player(world);
+    player.onDamage = () => ui.flashDamage();
+    player.onDeath = () => handleDeath();
+    preloadSpawn();
+    ready = true;
+    setMode(mode, true);
+    ui.select(selectedSlot);
+    ui.setStatus(mpStatus(msg.players.length + 1), true);
+  } else {
+    if (msg.seed !== world.seed) {
+      disposeAllChunks();
+      world.reset(msg.seed);
+      world.loadEdits(msg.edits || []);
+      ui.setSeed(msg.seed);
+      const spawn = world.findSpawn();
+      world.ensureChunk(spawn.x >> 4, spawn.z >> 4);
+      const top = world.topSolidAt(spawn.x, spawn.z);
+      player.respawn({ x: spawn.x, y: top + 1.2, z: spawn.z });
+      ui.toast("El mundo cambió, reapareces en el spawn", 3200);
+    } else {
+      world.loadEdits(msg.edits || []);
+      world.reapplyEdits();
+    }
+    ui.toast("Conexión restablecida", 2600);
+  }
+  for (const p of msg.players) remotePlayers.upsert(p);
+  remotePlayers.prune(msg.players, net.id);
+}
+
+function mpStatus(count) {
+  return `En línea · ${count} ${count === 1 ? "jugador" : "jugadores"}`;
+}
+
+function applyRemoteEdit(msg) {
+  if (!world) return;
+  world.applyEdit(msg.x, msg.y, msg.z, msg.id);
+  if (started) spawnParticles(msg.x, msg.y, msg.z, msg.id, 6, 1.8);
+}
+
 function canInteract() {
   return started && (input.locked || input.touch);
 }
@@ -320,7 +440,7 @@ function setMode(next, silent = false) {
   if (!silent) ui.toast(mode === "survival" ? "Modo supervivencia" : "Modo creativo");
 }
 
-function init() {
+function startSingleplayer() {
   const saved = loadGame();
   const seed = saved?.seed ?? Math.floor(Math.random() * 1e9);
   world = new World(seed);
@@ -329,8 +449,6 @@ function init() {
   player = new Player(world);
   player.onDamage = () => ui.flashDamage();
   player.onDeath = () => handleDeath();
-  ui.showMenu("start", { ready: false });
-  ui.showHud();
   if (saved?.player) {
     player.pos.set(saved.player.x, saved.player.y, saved.player.z);
     player.yaw = saved.player.yaw ?? 0;
@@ -509,6 +627,7 @@ function resetMining() {
 function breakBlock(t) {
   if (isUnbreakable(t.block)) return;
   world.setBlock(t.x, t.y, t.z, AIR);
+  if (mpActive) net.sendEdit(t.x, t.y, t.z, AIR);
   sfx.play("break", t.block);
   spawnParticles(t.x, t.y, t.z, t.block, 10, 2.4);
 }
@@ -574,6 +693,7 @@ function tryPlace() {
     return;
   }
   world.setBlock(x, y, z, id);
+  if (mpActive) net.sendEdit(x, y, z, id);
   sfx.play("place", id);
   spawnParticles(x, y, z, id, 5, 1.4);
   placeCooldown = 0.22;
@@ -597,6 +717,10 @@ function selectSlot(i) {
 
 function doSave(notify) {
   if (!world) return;
+  if (mpActive) {
+    if (notify) ui.toast("Guardado local desactivado en multijugador");
+    return;
+  }
   const ok = saveGame({
     seed: world.seed,
     time: timeOfDay,
@@ -741,8 +865,9 @@ function updateHud(dt) {
   const modeName = mode === "survival" ? "Supervivencia" : "Creativo";
   const state = player.flying ? "Vuelo" : player.inWater ? "Nadando" : "A pie";
   const healthLine = mode === "survival" ? ` · Vida ${player.health}/${player.maxHealth}` : "";
+  const mpLine = mpActive ? ` · MP ${remotePlayers.count + 1}` : "";
   ui.setDebug(
-    `Vexio Craft · ${fps} fps\n` +
+    `Vexio Craft · ${fps} fps${mpLine}\n` +
       `XYZ ${player.pos.x.toFixed(1)} ${player.pos.y.toFixed(1)} ${player.pos.z.toFixed(1)}\n` +
       `Chunks ${world.chunks.size} · Hora ${hh}:${mm} · ${modeName}\n` +
       `Bloque: ${targetName} · ${state}${healthLine}`
@@ -773,6 +898,11 @@ function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.1);
 
+  if (!world || !player) {
+    renderer.render(scene, camera);
+    return;
+  }
+
   handleMouseLook();
   updatePhysics(dt);
   updateCamera(dt);
@@ -788,8 +918,17 @@ function frame() {
   streamChunks();
   updateParticles(dt);
   updateHud(dt);
+  remotePlayers.update(dt);
 
-  if (started) {
+  if (mpActive && started) {
+    stateTimer += dt;
+    if (stateTimer >= 0.08) {
+      stateTimer = 0;
+      net.sendState(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch);
+    }
+  }
+
+  if (started && !mpActive) {
     saveTimer += dt;
     if (saveTimer >= AUTOSAVE_INTERVAL) {
       saveTimer = 0;
@@ -808,7 +947,18 @@ window.addEventListener("resize", () => {
 
 window.addEventListener("pointerdown", () => sfx.resume(), { once: true });
 
-init();
+ui.showHud();
+ui.setPlayerName(playerName);
+ui.showMenu("start", { ready: false });
+ui.setStatus("Conectando al servidor…", false);
+net.connect(playerName);
+setTimeout(() => {
+  if (mpDecided) return;
+  mpDecided = true;
+  net.stop();
+  ui.setMultiplayer(false);
+  startSingleplayer();
+}, MP_TIMEOUT);
 frame();
 
 if (typeof window !== "undefined") {
@@ -833,6 +983,15 @@ if (typeof window !== "undefined") {
     },
     get touch() {
       return IS_TOUCH;
+    },
+    get mp() {
+      return mpActive;
+    },
+    get players() {
+      return remotePlayers.count;
+    },
+    get playerName() {
+      return playerName;
     },
     setMode(next) {
       setMode(next);

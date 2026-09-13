@@ -85,6 +85,21 @@ export class World {
     if (chunk) chunk.dirty = true;
   }
 
+  applyEdit(x, y, z, id) {
+    if (y < 1 || y >= WORLD_HEIGHT) return;
+    const cx = x >> 4;
+    const cz = z >> 4;
+    this.recordEdit(cx, cz, x & 15, y, z & 15, id);
+    const chunk = this.getChunk(cx, cz);
+    if (!chunk || !chunk.ready) return;
+    chunk.blocks[this.localIndex(x & 15, y, z & 15)] = id;
+    chunk.dirty = true;
+    if ((x & 15) === 0) this.markDirty(cx - 1, cz);
+    if ((x & 15) === 15) this.markDirty(cx + 1, cz);
+    if ((z & 15) === 0) this.markDirty(cx, cz - 1);
+    if ((z & 15) === 15) this.markDirty(cx, cz + 1);
+  }
+
   recordEdit(cx, cz, lx, y, lz, id) {
     const key = this.chunkKey(cx, cz);
     let map = this.editsByChunk.get(key);
@@ -244,6 +259,15 @@ export class World {
       out.push([Number(x), Number(y), Number(z), id]);
     }
     return out;
+  }
+
+  reapplyEdits() {
+    for (const chunk of this.chunks.values()) {
+      const edits = this.editsByChunk.get(this.chunkKey(chunk.cx, chunk.cz));
+      if (!edits) continue;
+      for (const [idx, id] of edits) chunk.blocks[idx] = id;
+      chunk.dirty = true;
+    }
   }
 
   loadEdits(list) {

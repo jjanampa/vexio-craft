@@ -2,6 +2,10 @@ import { BLOCKS } from "./blocks.js";
 import { drawTileIcon } from "./textures.js";
 import { IS_TOUCH } from "./config.js";
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
 const ICON_TILE = {
   1: "grass_side",
   2: "dirt",
@@ -19,7 +23,7 @@ const ICON_TILE = {
 };
 
 export class UI {
-  constructor({ atlas, hotbar, onContinue, onSave, onLoad, onNewWorld, onSelectSlot, onToggleMode, onPause }) {
+  constructor({ atlas, hotbar, onContinue, onSave, onLoad, onNewWorld, onSelectSlot, onToggleMode, onPause, onNameChange }) {
     this.atlas = atlas;
     this.hotbar = hotbar;
     this.onContinue = onContinue;
@@ -29,6 +33,10 @@ export class UI {
     this.onSelectSlot = onSelectSlot;
     this.onToggleMode = onToggleMode;
     this.onPause = onPause;
+    this.onNameChange = onNameChange;
+    this.multiplayer = false;
+    this.onlineCount = 0;
+    this.playerName = "";
 
     this.menu = document.getElementById("menu");
     this.hud = document.getElementById("hud");
@@ -98,6 +106,23 @@ export class UI {
 
   setSeed(seed) {
     this.seed = seed;
+    const el = document.getElementById("menu-seed");
+    if (el) el.textContent = seed;
+  }
+
+  setPlayerName(name) {
+    this.playerName = name;
+    const input = document.getElementById("name-input");
+    if (input && input.value !== name) input.value = name;
+  }
+
+  setMultiplayer(active, count = this.onlineCount) {
+    this.multiplayer = active;
+    this.onlineCount = count;
+    const info = document.getElementById("mp-info");
+    const counter = document.getElementById("mp-count");
+    if (counter) counter.textContent = String(count);
+    if (info) info.classList.toggle("hidden", !active);
   }
 
   setMode(mode) {
@@ -205,34 +230,47 @@ export class UI {
       panel.className = "panel";
       panel.innerHTML = `
         <h1>VEXIO CRAFT</h1>
-        <p class="sub">Mundo infinito en tu navegador · semilla <b>${this.seed}</b>${IS_TOUCH ? " · mejor en horizontal" : ""}</p>
+        <p class="sub">Mundo infinito en tu navegador · semilla <b id="menu-seed">${this.seed}</b>${IS_TOUCH ? " · mejor en horizontal" : ""}</p>
+        <label class="name-field">Tu nombre
+          <input id="name-input" maxlength="16" autocomplete="off" spellcheck="false" value="${escapeHtml(this.playerName)}" />
+        </label>
+        <p class="sub hidden" id="mp-info">Multijugador · <b id="mp-count">${this.onlineCount}</b> en línea</p>
         <div class="status" id="menu-status">${ready ? "" : "Generando mundo…"}</div>
         <div class="controls" id="menu-controls"></div>
         <div class="buttons">
-          <button id="btn-play" ${ready ? "" : "disabled"}>${ready ? (IS_TOUCH ? "Jugar" : "Jugar") : "Cargando…"}</button>
+          <button id="btn-play" ${ready ? "" : "disabled"}>${ready ? "Jugar" : "Cargando…"}</button>
         </div>
       `;
       this.menu.appendChild(panel);
       this.renderControls(panel.querySelector("#menu-controls"), this.mode);
       panel.querySelector("#btn-play").addEventListener("click", () => this.onContinue?.());
+      panel.querySelector("#name-input").addEventListener("change", (event) => {
+        this.onNameChange?.(event.target.value);
+      });
       this.statusEl = panel.querySelector("#menu-status");
+      this.setMultiplayer(this.multiplayer);
     } else if (mode === "pause") {
       this.menu.innerHTML = "";
       const panel = document.createElement("div");
       panel.className = "panel";
-      panel.innerHTML = `
-        <h2>Pausa</h2>
-        <p class="sub">Semilla <b>${this.seed}</b> · Modo <b>${this.mode === "survival" ? "Supervivencia" : "Creativo"}</b></p>
-        <div class="controls" id="menu-controls"></div>
-        <div class="buttons">
-          <button id="btn-continue">Continuar</button>
-          <button id="btn-mode" class="secondary">Cambiar a ${this.mode === "survival" ? "creativo" : "supervivencia"}</button>
-        </div>
+      const mp = this.multiplayer;
+      const localButtons = `
         <div class="buttons">
           <button id="btn-save" class="secondary">Guardar</button>
           <button id="btn-load" class="secondary">Cargar</button>
           <button id="btn-new" class="secondary">Mundo nuevo</button>
         </div>
+      `;
+      panel.innerHTML = `
+        <h2>Pausa</h2>
+        <p class="sub">Semilla <b>${this.seed}</b> · Modo <b>${this.mode === "survival" ? "Supervivencia" : "Creativo"}</b></p>
+        <p class="sub${mp ? "" : " hidden"}" id="mp-info">Multijugador · <b id="mp-count">${this.onlineCount}</b> en línea · ediciones compartidas</p>
+        <div class="controls" id="menu-controls"></div>
+        <div class="buttons">
+          <button id="btn-continue">Continuar</button>
+          <button id="btn-mode" class="secondary">Cambiar a ${this.mode === "survival" ? "creativo" : "supervivencia"}</button>
+        </div>
+        ${mp ? "" : localButtons}
       `;
       this.menu.appendChild(panel);
       this.renderControls(panel.querySelector("#menu-controls"), this.mode);
@@ -241,9 +279,13 @@ export class UI {
         this.onToggleMode?.();
         this.showMenu("pause");
       });
-      panel.querySelector("#btn-save").addEventListener("click", () => this.onSave?.());
-      panel.querySelector("#btn-load").addEventListener("click", () => this.onLoad?.());
-      panel.querySelector("#btn-new").addEventListener("click", () => this.onNewWorld?.());
+      if (!mp) {
+        panel.querySelector("#btn-save").addEventListener("click", () => this.onSave?.());
+        panel.querySelector("#btn-load").addEventListener("click", () => this.onLoad?.());
+        panel.querySelector("#btn-new").addEventListener("click", () => this.onNewWorld?.());
+      }
+      const counter = panel.querySelector("#mp-count");
+      if (counter) counter.textContent = String(this.onlineCount);
     }
     this.menu.classList.remove("hidden");
   }
