@@ -12,16 +12,24 @@ import {
 import {
   AIR,
   WATER,
+  LAVA,
+  OBSIDIAN,
+  NETHER_PORTAL,
+  END_PORTAL,
   HOTBAR,
   BLOCKS,
   isLiquid,
+  isLava,
+  isWater,
+  isPortal,
   isUnbreakable,
   isSolid,
   breakTime,
   faceTile,
 } from "./blocks.js";
 import { createAtlas, createCrackStrip, averageTileColors } from "./textures.js";
-import { World } from "./world.js";
+import { World, BIOME_NAMES, DIMENSION_NAMES } from "./world.js";
+import { tryIgnitePortal, ensurePortal } from "./portals.js";
 import { buildChunkGeometry, disposeChunkMeshes } from "./mesher.js";
 import { Player } from "./player.js";
 import { Input } from "./input.js";
@@ -74,6 +82,22 @@ const materialAlpha = new THREE.MeshLambertMaterial({
   side: THREE.DoubleSide,
 });
 let waterShader = null;
+const materialLava = new THREE.MeshLambertMaterial({
+  map: texture,
+  vertexColors: true,
+  emissive: 0xff6a00,
+  emissiveIntensity: 0.65,
+});
+const materialPortal = new THREE.MeshLambertMaterial({
+  map: texture,
+  vertexColors: true,
+  transparent: true,
+  opacity: 0.86,
+  emissive: 0x7a30c0,
+  emissiveIntensity: 0.55,
+  side: THREE.DoubleSide,
+  depthWrite: false,
+});
 const materialWater = new THREE.MeshLambertMaterial({
   map: texture,
   vertexColors: true,
@@ -251,6 +275,15 @@ let mpActive = false;
 let mpDecided = false;
 let stateTimer = 0;
 
+const dimensionSeeds = {};
+const dimensionEdits = {};
+const dimensions = {};
+let currentDim = "overworld";
+let portalTimer = 0;
+let portalCooldown = 0;
+let travelled = false;
+let lavaTimer = 0;
+
 let world;
 let player;
 let timeOfDay = 0.32;
@@ -271,6 +304,7 @@ let fpsTimer = 0;
 let stepOdometer = 0;
 let elapsed = 0;
 let underwater = false;
+let underwaterLava = false;
 const underwaterEl = document.getElementById("underwater");
 
 const sfx = new Sfx();
@@ -358,12 +392,13 @@ const net = new Net({
   },
   onRename: (id, name) => remotePlayers.rename(id, name),
   onState: (list) => {
-    for (const p of list) {
+    const local = list.filter((p) => p.dim === currentDim);
+    for (const p of local) {
       if (p.id === net.id) continue;
       remotePlayers.upsert(p);
     }
-    remotePlayers.prune(list, net.id);
-    ui.setMultiplayer(true, remotePlayers.count + 1);
+    remotePlayers.prune(local, net.id);
+    ui.setMultiplayer(true, local.length);
   },
   onEdit: (msg) => applyRemoteEdit(msg),
   onStatus: (connected, wasConnected) => {
@@ -372,41 +407,66 @@ const net = new Net({
   },
 });
 
+function deriveSeed(seed, n) {
+  return Math.abs((seed * 31 + n * 1013904223) % 1000000000);
+}
+
+function getWorld(dim) {
+  let w = dimensions[dim];
+  if (!w) {
+    const seed =
+      dimensionSeeds[dim] ??
+      deriveSeed(dimensionSeeds.overworld ?? Math.floor(Math.random() * 1e9), dim === "nether" ? 1 : dim === "end" ? 2 : 0);
+    dimensionSeeds[dim] = seed;
+    w = new World(seed, dim);
+    if (dimensionEdits[dim]) w.loadEdits(dimensionEdits[dim]);
+    dimensions[dim] = w;
+  }
+  return w;
+}
+
+function applyDimensionData(dims) {
+  if (!dims) return;
+  for (const [dim, info] of Object.entries(dims)) {
+    dimensionSeeds[dim] = info.seed;
+    dimensionEdits[dim] = info.edits || [];
+    const existing = dimensions[dim];
+    if (existing) {
+      if (existing.seed !== info.seed) {
+        existing.reset(info.seed, dim);
+      }
+      existing.loadEdits(info.edits || []);
+      existing.reapplyEdits();
+    }
+  }
+}
+
 function handleWelcome(msg) {
   mpDecided = true;
   mpActive = true;
-  ui.setMultiplayer(true, msg.players.length + 1);
+  applyDimensionData(msg.dims);
+  currentDim = msg.dim || "overworld";
   if (!ready) {
-    world = new World(msg.seed);
-    world.loadEdits(msg.edits || []);
-    ui.setSeed(msg.seed);
+    world = getWorld(currentDim);
+    ui.setSeed(world.seed);
     player = new Player(world);
     player.onDamage = () => ui.flashDamage();
     player.onDeath = () => handleDeath();
+    sky.setDimension(currentDim);
     preloadSpawn();
     ready = true;
     setMode(mode, true);
     ui.select(selectedSlot);
     ui.setStatus(mpStatus(msg.players.length + 1), true);
   } else {
-    if (msg.seed !== world.seed) {
-      disposeAllChunks();
-      world.reset(msg.seed);
-      world.loadEdits(msg.edits || []);
-      ui.setSeed(msg.seed);
-      const spawn = world.findSpawn();
-      world.ensureChunk(spawn.x >> 4, spawn.z >> 4);
-      const top = world.topSolidAt(spawn.x, spawn.z);
-      player.respawn({ x: spawn.x, y: top + 1.2, z: spawn.z });
-      ui.toast("El mundo cambió, reapareces en el spawn", 3200);
-    } else {
-      world.loadEdits(msg.edits || []);
-      world.reapplyEdits();
-    }
+    world = getWorld(currentDim);
+    for (const chunk of world.chunks.values()) chunk.dirty = true;
+    remotePlayers.clear();
     ui.toast("Conexión restablecida", 2600);
   }
-  for (const p of msg.players) remotePlayers.upsert(p);
-  remotePlayers.prune(msg.players, net.id);
+  const local = msg.players.filter((p) => p.dim === currentDim);
+  for (const p of local) remotePlayers.upsert(p);
+  remotePlayers.prune(local, net.id);
 }
 
 function mpStatus(count) {
@@ -414,7 +474,7 @@ function mpStatus(count) {
 }
 
 function applyRemoteEdit(msg) {
-  if (!world) return;
+  if (!world || (msg.dim && msg.dim !== currentDim)) return;
   world.applyEdit(msg.x, msg.y, msg.z, msg.id);
   if (started) spawnParticles(msg.x, msg.y, msg.z, msg.id, 6, 1.8);
 }
@@ -446,13 +506,20 @@ function setMode(next, silent = false) {
 
 function startSingleplayer() {
   const saved = loadGame();
-  const seed = saved?.seed ?? Math.floor(Math.random() * 1e9);
-  world = new World(seed);
-  ui.setSeed(seed);
-  if (saved?.edits) world.loadEdits(saved.edits);
+  const baseSeed = saved?.seed ?? Math.floor(Math.random() * 1e9);
+  dimensionSeeds.overworld = saved?.seeds?.overworld ?? baseSeed;
+  dimensionSeeds.nether = saved?.seeds?.nether ?? deriveSeed(baseSeed, 1);
+  dimensionSeeds.end = saved?.seeds?.end ?? deriveSeed(baseSeed, 2);
+  dimensionEdits.overworld = saved?.dims?.overworld ?? saved?.edits ?? [];
+  dimensionEdits.nether = saved?.dims?.nether ?? [];
+  dimensionEdits.end = saved?.dims?.end ?? [];
+  currentDim = saved?.player?.dim ?? "overworld";
+  world = getWorld(currentDim);
+  ui.setSeed(world.seed);
   player = new Player(world);
   player.onDamage = () => ui.flashDamage();
   player.onDeath = () => handleDeath();
+  sky.setDimension(currentDim);
   if (saved?.player) {
     player.pos.set(saved.player.x, saved.player.y, saved.player.z);
     player.yaw = saved.player.yaw ?? 0;
@@ -462,11 +529,27 @@ function startSingleplayer() {
     mode = saved.mode ?? "creative";
     player.health = saved.health ?? player.maxHealth;
     ui.setStatus("", true);
+    preloadAround(Math.floor(player.pos.x), Math.floor(player.pos.z));
   } else {
     preloadSpawn();
   }
   setMode(mode, true);
   ui.select(selectedSlot);
+}
+
+function preloadAround(x, z) {
+  const cx = Math.floor(x / CHUNK_SIZE);
+  const cz = Math.floor(z / CHUNK_SIZE);
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) world.ensureChunk(cx + dx, cz + dz);
+  }
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const chunk = world.ensureChunk(cx + dx, cz + dz);
+      rebuildChunk(chunk);
+      chunk.dirty = false;
+    }
+  }
 }
 
 function preloadSpawn() {
@@ -478,29 +561,24 @@ function preloadSpawn() {
       }
     }
   }
-  const spawn = world.findSpawn();
-  const sx = spawn.x >> 4;
-  const sz = spawn.z >> 4;
-  for (let dz = -1; dz <= 1; dz++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const chunk = world.ensureChunk(sx + dx, sz + dz);
-      rebuildChunk(chunk);
-      chunk.dirty = false;
-    }
-  }
-  const top = world.topSolidAt(spawn.x, spawn.z);
-  player.respawn({ x: spawn.x, y: top + 1.2, z: spawn.z });
+  const point = respawnPoint();
+  preloadAround(Math.floor(point.x), Math.floor(point.z));
+  player.respawn(point);
   ready = true;
   ui.setStatus("", true);
+}
+
+function respawnPoint() {
+  const spawn = world.findSpawn();
+  world.ensureChunk(spawn.x >> 4, spawn.z >> 4);
+  const top = world.findFloor(spawn.x, spawn.z, Math.min(WORLD_HEIGHT - 2, spawn.h + 12));
+  return { x: spawn.x, y: top + 1.2, z: spawn.z };
 }
 
 function handleDeath() {
   ui.flashDamage();
   ui.toast("Has muerto, reapareces en el spawn");
-  const spawn = world.findSpawn();
-  world.ensureChunk(spawn.x >> 4, spawn.z >> 4);
-  const top = world.topSolidAt(spawn.x, spawn.z);
-  player.respawn({ x: spawn.x, y: top + 1.2, z: spawn.z });
+  player.respawn(respawnPoint());
   ui.setHealth(player.health, true);
 }
 
@@ -523,6 +601,12 @@ function rebuildChunk(chunk) {
   }
   if (parts.water) {
     meshes.push(new THREE.Mesh(parts.water, materialWater));
+  }
+  if (parts.lava) {
+    meshes.push(new THREE.Mesh(parts.lava, materialLava));
+  }
+  if (parts.portal) {
+    meshes.push(new THREE.Mesh(parts.portal, materialPortal));
   }
   for (const mesh of meshes) {
     mesh.matrixAutoUpdate = false;
@@ -631,10 +715,22 @@ function resetMining() {
 function breakBlock(t) {
   if (isUnbreakable(t.block)) return;
   world.setBlock(t.x, t.y, t.z, AIR);
-  if (mpActive) net.sendEdit(t.x, t.y, t.z, AIR);
+  if (mpActive) net.sendEdit(t.x, t.y, t.z, AIR, currentDim);
   hand.triggerSwing();
   sfx.play("break", t.block);
   spawnParticles(t.x, t.y, t.z, t.block, 10, 2.4);
+  if (t.block === OBSIDIAN) ignitePortalNear(t.x, t.y, t.z);
+}
+
+function ignitePortalNear(x, y, z) {
+  const changed = tryIgnitePortal(world, x, y, z);
+  if (!changed || changed.length === 0) return;
+  hand.triggerSwing();
+  sfx.play("place", NETHER_PORTAL);
+  for (const [bx, by, bz, id] of changed) {
+    if (mpActive) net.sendEdit(bx, by, bz, id, currentDim);
+  }
+  ui.toast("¡Portal encendido!", 2000);
 }
 
 function updateMining(dt) {
@@ -699,11 +795,12 @@ function tryPlace() {
     return;
   }
   world.setBlock(x, y, z, id);
-  if (mpActive) net.sendEdit(x, y, z, id);
+  if (mpActive) net.sendEdit(x, y, z, id, currentDim);
   hand.triggerSwing();
   sfx.play("place", id);
   spawnParticles(x, y, z, id, 5, 1.4);
   placeCooldown = 0.22;
+  if (id === OBSIDIAN) ignitePortalNear(x, y, z);
 }
 
 function pickBlock() {
@@ -730,18 +827,24 @@ function doSave(notify) {
     return;
   }
   const ok = saveGame({
-    seed: world.seed,
+    seed: dimensionSeeds.overworld,
+    seeds: { ...dimensionSeeds },
+    dims: {
+      overworld: dimensions.overworld?.serializeEdits() ?? [],
+      nether: dimensions.nether?.serializeEdits() ?? [],
+      end: dimensions.end?.serializeEdits() ?? [],
+    },
     time: timeOfDay,
     selected: selectedSlot,
     mode,
     health: player.health,
-    edits: world.serializeEdits(),
     player: {
       x: player.pos.x,
       y: player.pos.y,
       z: player.pos.z,
       yaw: player.yaw,
       pitch: player.pitch,
+      dim: currentDim,
     },
   });
   if (notify) ui.toast(ok ? "Partida guardada" : "No se pudo guardar");
@@ -753,15 +856,28 @@ function doLoad() {
     ui.toast("No hay partida guardada");
     return;
   }
-  disposeAllChunks();
-  world.reset(saved.seed);
-  world.loadEdits(saved.edits || []);
-  ui.setSeed(saved.seed);
+  for (const w of Object.values(dimensions)) {
+    for (const chunk of w.chunks.values()) disposeChunkMeshes(chunk, scene);
+    w.chunks.clear();
+  }
+  const baseSeed = saved.seed;
+  dimensionSeeds.overworld = saved.seeds?.overworld ?? baseSeed;
+  dimensionSeeds.nether = saved.seeds?.nether ?? deriveSeed(baseSeed, 1);
+  dimensionSeeds.end = saved.seeds?.end ?? deriveSeed(baseSeed, 2);
+  dimensionEdits.overworld = saved.dims?.overworld ?? saved.edits ?? [];
+  dimensionEdits.nether = saved.dims?.nether ?? [];
+  dimensionEdits.end = saved.dims?.end ?? [];
+  for (const dim of Object.keys(dimensions)) delete dimensions[dim];
+  currentDim = saved.player?.dim ?? "overworld";
+  world = getWorld(currentDim);
+  ui.setSeed(world.seed);
+  sky.setDimension(currentDim);
   timeOfDay = saved.time ?? 0.32;
   selectedSlot = saved.selected ?? 0;
   mode = saved.mode ?? "creative";
   player.health = saved.health ?? player.maxHealth;
   player.dead = false;
+  player.world = world;
   ui.select(selectedSlot);
   setMode(mode, true);
   if (saved.player) {
@@ -769,9 +885,11 @@ function doLoad() {
     player.yaw = saved.player.yaw ?? 0;
     player.pitch = saved.player.pitch ?? 0;
     player.vel.set(0, 0, 0);
+    preloadAround(Math.floor(player.pos.x), Math.floor(player.pos.z));
   } else {
     preloadSpawn();
   }
+  remotePlayers.clear();
   ui.toast("Partida cargada");
 }
 
@@ -781,25 +899,29 @@ function disposeAllChunks() {
 }
 
 function doNewWorld() {
-  disposeAllChunks();
   const seed = Math.floor(Math.random() * 1e9);
-  world.reset(seed);
+  dimensionSeeds.overworld = seed;
+  dimensionSeeds.nether = deriveSeed(seed, 1);
+  dimensionSeeds.end = deriveSeed(seed, 2);
+  dimensionEdits.overworld = [];
+  dimensionEdits.nether = [];
+  dimensionEdits.end = [];
+  for (const w of Object.values(dimensions)) {
+    for (const chunk of w.chunks.values()) disposeChunkMeshes(chunk, scene);
+    w.chunks.clear();
+  }
+  for (const dim of Object.keys(dimensions)) delete dimensions[dim];
+  currentDim = "overworld";
+  world = getWorld("overworld");
+  player.world = world;
   ui.setSeed(seed);
+  sky.setDimension(currentDim);
   timeOfDay = 0.32;
   player.flying = false;
   player.vel.set(0, 0, 0);
   player.health = player.maxHealth;
   player.dead = false;
-  const spawn = world.findSpawn();
-  const sx = spawn.x >> 4;
-  const sz = spawn.z >> 4;
-  for (let dz = -1; dz <= 1; dz++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      world.ensureChunk(sx + dx, sz + dz);
-    }
-  }
-  const top = world.topSolidAt(spawn.x, spawn.z);
-  player.respawn({ x: spawn.x, y: top + 1.2, z: spawn.z });
+  preloadSpawn();
   ui.showMenu("pause");
   ui.toast("Mundo nuevo generado");
 }
@@ -826,6 +948,94 @@ function updatePhysics(dt) {
     stepOdometer = 1.2;
   }
   if (player.inWater && Math.random() < 0.04) sfx.play("splash", WATER);
+  const px = Math.floor(player.pos.x);
+  const pz = Math.floor(player.pos.z);
+  const hot = isLava(world.getBlock(px, Math.floor(player.pos.y + 0.2), pz)) || isLava(world.getBlock(px, Math.floor(player.pos.y + 1.1), pz));
+  if (hot) {
+    player.vel.x *= 0.55;
+    player.vel.z *= 0.55;
+    player.vel.y *= 0.8;
+    lavaTimer += dt;
+    if (mode === "survival" && lavaTimer >= 0.5) {
+      lavaTimer = 0;
+      player.damage(3);
+    }
+  } else {
+    lavaTimer = 0;
+  }
+  if (player.pos.y < -14) {
+    if (mode === "survival" && currentDim !== "end") player.damage(4);
+    player.respawn(respawnPoint());
+    ui.toast("Has caído al vacío");
+  }
+}
+
+function updatePortals(dt) {
+  if (!started || !world || !player || travelled) return;
+  if (portalCooldown > 0) portalCooldown -= dt;
+  const px = Math.floor(player.pos.x);
+  const pz = Math.floor(player.pos.z);
+  const feet = world.getBlock(px, Math.floor(player.pos.y + 0.3), pz);
+  const eye = world.getBlock(px, Math.floor(player.pos.y + 1.4), pz);
+  const portalId = isPortal(feet) ? feet : isPortal(eye) ? eye : AIR;
+  if (portalId === AIR) {
+    portalTimer = 0;
+    return;
+  }
+  portalTimer += dt;
+  if (portalTimer >= 1.1 && portalCooldown <= 0) {
+    portalTimer = 0;
+    travel(portalId);
+  }
+}
+
+function travel(portalId) {
+  travelled = true;
+  setTimeout(() => {
+    travelled = false;
+  }, 700);
+  const spawn = dimensions.overworld ? dimensions.overworld.findSpawn() : { x: 8, z: 8 };
+  if (portalId === END_PORTAL) {
+    if (currentDim === "end") switchDimension("overworld", spawn.x, spawn.z);
+    else switchDimension("end", 8, 8);
+  } else if (currentDim === "overworld") {
+    switchDimension("nether", Math.floor(player.pos.x / 8), Math.floor(player.pos.z / 8));
+  } else if (currentDim === "nether") {
+    switchDimension("overworld", Math.floor(player.pos.x * 8), Math.floor(player.pos.z * 8));
+  } else {
+    switchDimension("overworld", spawn.x, spawn.z);
+  }
+}
+
+function switchDimension(dim, tx, tz) {
+  const dest = getWorld(dim);
+  disposeAllChunks();
+  currentDim = dim;
+  world = dest;
+  player.world = dest;
+  sky.setDimension(dim);
+  let spot;
+  if (dim === "end") {
+    dest.ensureChunk(0, 0);
+    const top = dest.findFloor(6, 8, 50);
+    spot = { x: 6.5, y: top + 1.2, z: 8.5 };
+  } else {
+    const ensured = ensurePortal(dest, tx, tz, dim);
+    for (const [bx, by, bz, id] of ensured.placed) {
+      if (mpActive) net.sendEdit(bx, by, bz, id, dim);
+    }
+    spot = { x: ensured.pos.x, y: ensured.pos.y + 0.1, z: ensured.pos.z };
+  }
+  preloadAround(Math.floor(spot.x), Math.floor(spot.z));
+  player.pos.set(spot.x, spot.y, spot.z);
+  player.vel.set(0, 0, 0);
+  player.fallStart = null;
+  player.onGround = false;
+  portalCooldown = 5;
+  portalTimer = 0;
+  remotePlayers.clear();
+  if (mpActive) net.sendDim(dim, player.pos.x, player.pos.y, player.pos.z);
+  ui.toast(`Has viajado a ${DIMENSION_NAMES[dim]}`, 2600);
 }
 
 function updateCamera(dt) {
@@ -874,10 +1084,16 @@ function updateHud(dt) {
   const state = player.flying ? "Vuelo" : player.inWater ? "Nadando" : "A pie";
   const healthLine = mode === "survival" ? ` · Vida ${player.health}/${player.maxHealth}` : "";
   const mpLine = mpActive ? ` · MP ${remotePlayers.count + 1}` : "";
+  const biomeName =
+    currentDim === "overworld"
+      ? BIOME_NAMES[world.biomeAt(Math.floor(player.pos.x), Math.floor(player.pos.z))]
+      : DIMENSION_NAMES[world.dimension];
+  const dimLine = currentDim === "overworld" ? `${DIMENSION_NAMES[currentDim]} · ${biomeName}` : `${biomeName}`;
   ui.setDebug(
     `Vexio Craft · ${fps} fps${mpLine}\n` +
       `XYZ ${player.pos.x.toFixed(1)} ${player.pos.y.toFixed(1)} ${player.pos.z.toFixed(1)}\n` +
       `Chunks ${world.chunks.size} · Hora ${hh}:${mm} · ${modeName}\n` +
+      `Mundo: ${dimLine}\n` +
       `Bloque: ${targetName} · ${state}${healthLine}`
   );
   ui.setHealth(player.health, mode === "survival" && started);
@@ -885,15 +1101,30 @@ function updateHud(dt) {
 
 function updateUnderwater() {
   const eye = camera.position;
-  const inWater = isLiquid(world.getBlock(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z)));
-  if (inWater !== underwater) {
-    underwater = inWater;
-    underwaterEl.classList.toggle("hidden", !inWater);
+  const block = world.getBlock(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z));
+  const inWater = isWater(block);
+  const inLava = isLava(block);
+  const submerged = inWater || inLava;
+  if (submerged !== underwater || (submerged && inLava !== underwaterLava)) {
+    underwater = submerged;
+    underwaterLava = submerged && inLava;
+    underwaterEl.classList.toggle("hidden", !submerged);
+    underwaterEl.classList.toggle("lava", underwaterLava);
   }
-  if (underwater) {
+  if (inWater) {
     scene.fog.color.setHex(0x1b5e94);
     scene.fog.near = 0.6;
     scene.fog.far = 26;
+  } else if (inLava) {
+    scene.fog.color.setHex(0x5a1a06);
+    scene.fog.near = 0.4;
+    scene.fog.far = 9;
+  } else if (currentDim === "nether") {
+    scene.fog.near = 7;
+    scene.fog.far = 46;
+  } else if (currentDim === "end") {
+    scene.fog.near = 40;
+    scene.fog.far = 190;
   } else {
     scene.fog.near = FOG_NEAR;
     scene.fog.far = FOG_FAR;
@@ -913,6 +1144,7 @@ function frame() {
 
   handleMouseLook();
   updatePhysics(dt);
+  updatePortals(dt);
   updateCamera(dt);
   updateTarget();
   updateMining(dt);
@@ -932,7 +1164,7 @@ function frame() {
     stateTimer += dt;
     if (stateTimer >= 0.08) {
       stateTimer = 0;
-      net.sendState(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch);
+      net.sendState(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, currentDim);
     }
   }
 
@@ -1004,6 +1236,55 @@ if (typeof window !== "undefined") {
     },
     get playerName() {
       return playerName;
+    },
+    get dimension() {
+      return currentDim;
+    },
+    get biome() {
+      return player ? world.biomeAt(Math.floor(player.pos.x), Math.floor(player.pos.z)) : null;
+    },
+    findBiome(name, radius = 3000, step = 64) {
+      for (let r = 0; r <= radius; r += step) {
+        for (let a = 0; a < 10; a++) {
+          const angle = (a / 10) * Math.PI * 2;
+          const x = Math.round(Math.cos(angle) * r);
+          const z = Math.round(Math.sin(angle) * r);
+          if (world.biomeAt(x, z) === name) return { x, z };
+        }
+      }
+      return null;
+    },
+    findStructure(id) {
+      return world.findStructure(id);
+    },
+    teleportSurface(x, z) {
+      preloadAround(x, z);
+      const y = world.findFloor(x, z, WORLD_HEIGHT - 2);
+      player.pos.set(x + 0.5, y + 1.3, z + 0.5);
+      player.vel.set(0, 0, 0);
+      return [player.pos.x, player.pos.y, player.pos.z];
+    },
+    teleportY(x, y, z) {
+      preloadAround(x, z);
+      player.pos.set(x + 0.5, y, z + 0.5);
+      player.vel.set(0, 0, 0);
+      return [player.pos.x, player.pos.y, player.pos.z];
+    },
+    setDimension(dim, x, z) {
+      switchDimension(dim, x ?? Math.floor(player.pos.x), z ?? Math.floor(player.pos.z));
+      return currentDim;
+    },
+    look(yaw, pitch) {
+      player.yaw = yaw;
+      player.pitch = pitch;
+    },
+    blockAt(x, y, z) {
+      return world.getBlock(x, y, z);
+    },
+
+    setFlying(value) {
+      player.flying = !!value;
+      player.vel.y = 0;
     },
     setMode(next) {
       setMode(next);

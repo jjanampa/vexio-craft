@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./config.js";
-import { AIR, BLOCKS, BEDROCK, WATER, faceTile, isOpaqueBlock } from "./blocks.js";
+import { AIR, BLOCKS, BEDROCK, faceTile, isOpaqueBlock } from "./blocks.js";
+import { BIOME_LIST } from "./world.js";
 import { hash2 } from "./noise.js";
 
 const CS = CHUNK_SIZE;
@@ -100,11 +101,43 @@ function finish(buffers) {
   return geometry;
 }
 
+function pushPlant(world, chunk, buffers, uvs, rect, topMap, wx, y, wz) {
+  const shade = skyShade(topMap, chunk.cx * CS, chunk.cz * CS, wx + 0.5, y + 0.5, wz + 0.5);
+  const tint = 0.94 + hash2(wx * 7 + 13, wz * 7 + 29, 8891) * 0.08;
+  const brightness = shade * tint;
+  const quads = [
+    [
+      [wx + 0.06, y, wz + 0.06],
+      [wx + 0.94, y, wz + 0.94],
+      [wx + 0.94, y + 1, wz + 0.94],
+      [wx + 0.06, y + 1, wz + 0.06],
+    ],
+    [
+      [wx + 0.94, y, wz + 0.06],
+      [wx + 0.06, y, wz + 0.94],
+      [wx + 0.06, y + 1, wz + 0.94],
+      [wx + 0.94, y + 1, wz + 0.06],
+    ],
+  ];
+  for (const quad of quads) {
+    const baseIndex = buffers.positions.length / 3;
+    for (const [x, yy, z] of quad) {
+      buffers.positions.push(x, yy, z);
+      buffers.normals.push(0, 1, 0);
+      buffers.colors.push(brightness, brightness, brightness);
+    }
+    buffers.uvs.push(rect.u0, rect.v0, rect.u1, rect.v0, rect.u1, rect.v1, rect.u0, rect.v1);
+    buffers.indices.push(baseIndex, baseIndex + 1, baseIndex + 2, baseIndex, baseIndex + 2, baseIndex + 3);
+  }
+}
+
 export function buildChunkGeometry(world, chunk, uvs) {
   const groups = {
     opaque: makeBuffers(),
     alpha: makeBuffers(),
     water: makeBuffers(),
+    lava: makeBuffers(),
+    portal: makeBuffers(),
   };
   const bx0 = chunk.cx * CS;
   const bz0 = chunk.cz * CS;
@@ -118,11 +151,25 @@ export function buildChunkGeometry(world, chunk, uvs) {
         if (id === AIR) continue;
         const def = BLOCKS[id];
         if (!def) continue;
-        const buffers = def.liquid ? groups.water : def.opaque ? groups.opaque : groups.alpha;
         const wx = bx0 + lx;
         const wz = bz0 + lz;
+        const biome = BIOME_LIST[chunk.biomes[lz * CS + lx]] || "plains";
+        if (def.plant) {
+          const plantRect = uvs[faceTile(id, 2, biome)];
+          if (plantRect) pushPlant(world, chunk, groups.alpha, uvs, plantRect, topMap, wx, y, wz);
+          continue;
+        }
+        const buffers = def.liquid
+          ? def.lava
+            ? groups.lava
+            : groups.water
+          : def.portal
+            ? groups.portal
+            : def.opaque
+              ? groups.opaque
+              : groups.alpha;
         const waterTop =
-          def.liquid && (y + 1 >= WORLD_HEIGHT || world.getBlock(wx, y + 1, wz) !== WATER) ? 0.875 : 1;
+          def.liquid && (y + 1 >= WORLD_HEIGHT || world.getBlock(wx, y + 1, wz) !== id) ? 0.875 : 1;
         const tint = def.liquid ? 1 : 0.94 + hash2(wx * 7 + 13, wz * 7 + 29, 8891) * 0.08;
 
         for (let f = 0; f < 6; f++) {
@@ -133,7 +180,7 @@ export function buildChunkGeometry(world, chunk, uvs) {
           const other = ny < 0 ? BEDROCK : ny >= WORLD_HEIGHT ? AIR : world.getBlock(nx, ny, nz);
           if (!faceVisible(id, other)) continue;
 
-          const tile = faceTile(id, f);
+          const tile = faceTile(id, f, biome);
           const rect = uvs[tile];
           if (!rect) continue;
           const baseIndex = buffers.positions.length / 3;
@@ -164,6 +211,8 @@ export function buildChunkGeometry(world, chunk, uvs) {
     opaque: finish(groups.opaque),
     alpha: finish(groups.alpha),
     water: finish(groups.water),
+    lava: finish(groups.lava),
+    portal: finish(groups.portal),
   };
 }
 

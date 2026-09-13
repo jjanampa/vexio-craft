@@ -92,12 +92,16 @@ export class Net {
     this.ws.send(JSON.stringify(message));
   }
 
-  sendState(x, y, z, yaw, pitch) {
-    this.send({ t: "state", x, y, z, yaw, pitch });
+  sendState(x, y, z, yaw, pitch, dim) {
+    this.send({ t: "state", x, y, z, yaw, pitch, dim });
   }
 
-  sendEdit(x, y, z, id) {
-    this.send({ t: "edit", x, y, z, id });
+  sendEdit(x, y, z, id, dim) {
+    this.send({ t: "edit", x, y, z, id, dim });
+  }
+
+  sendDim(dim, x, y, z) {
+    this.send({ t: "dim", dim, x, y, z });
   }
 
   rename(name) {

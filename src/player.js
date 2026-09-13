@@ -217,6 +217,5 @@ export class Player {
     const dx = this.pos.x - startX;
     const dz = this.pos.z - startZ;
     this.walkedDistance += Math.sqrt(dx * dx + dz * dz);
-    if (this.pos.y < -12) this.respawn({ x: Math.floor(this.pos.x), z: Math.floor(this.pos.z), y: 46 });
   }
 }

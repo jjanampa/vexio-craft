@@ -4,7 +4,7 @@ const TILE = 16;
 const PAD = 4;
 const CELL = TILE + PAD * 2;
 const COLS = 8;
-const ROWS = 8;
+const ROWS = 12;
 
 function fill(ctx, s, color) {
   ctx.fillStyle = color;
@@ -294,6 +294,489 @@ const PAINTERS = {
     }
   },
 };
+
+function logSidePainter(ctx, s, rng, palette, dark, light) {
+  noiseFill(ctx, rng, s, palette, dark, light, 0.12, 0.1);
+  for (let x = 0; x < s; x += 3) {
+    rect(ctx, x, 0, 1, s, rng() < 0.5 ? "rgba(40,28,14,0.45)" : "rgba(160,125,80,0.3)");
+  }
+  for (let i = 0; i < 2; i++) {
+    const x = 3 + ((rng() * (s - 6)) | 0);
+    const y = 4 + ((rng() * (s - 8)) | 0);
+    rect(ctx, x, y, 2, 3, "rgba(35,22,10,0.7)");
+  }
+  rect(ctx, 0, 0, 1, s, "rgba(0,0,0,0.2)");
+  rect(ctx, s - 1, 0, 1, s, "rgba(0,0,0,0.2)");
+}
+
+function logTopPainter(ctx, s, rng, base, palette, dark, light, ring1, ring2, knot) {
+  noiseFill(ctx, rng, s, palette, dark, light, 0.1, 0.1);
+  const rings = [
+    [1, ring1],
+    [3, ring2],
+    [5, ring1],
+    [7, ring2],
+  ];
+  for (const [inset, color] of rings) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(inset + 0.5, inset + 0.5, s - inset * 2 - 1, s - inset * 2 - 1);
+  }
+  rect(ctx, 7, 7, 2, 2, knot);
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.strokeRect(0.5, 0.5, s - 1, s - 1);
+}
+
+function leavesPainter(ctx, s, rng, palette, dark, light, holes) {
+  noiseFill(ctx, rng, s, palette, dark, light, 0.18, 0.12);
+  for (let i = 0; i < holes; i++) ctx.clearRect((rng() * s) | 0, (rng() * s) | 0, 2, 2);
+  for (let i = 0; i < holes * 2; i++) ctx.clearRect((rng() * s) | 0, (rng() * s) | 0, 1, 1);
+  for (let i = 0; i < 8; i++) rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 2, 1, dark);
+}
+
+function planksPainter(ctx, s, rng, shades, line, grainDark, grainLight) {
+  const rowH = 4;
+  for (let row = 0; row < s / rowH; row++) {
+    const y = row * rowH;
+    rect(ctx, 0, y, s, rowH, shades[row % shades.length]);
+    for (let i = 0; i < 7; i++) {
+      rect(
+        ctx,
+        (rng() * s) | 0,
+        y + ((rng() * rowH) | 0),
+        2 + ((rng() * 4) | 0),
+        1,
+        rng() < 0.5 ? grainDark : grainLight
+      );
+    }
+    rect(ctx, 0, y + rowH - 1, s, 1, line);
+    const joint = ((row % 2) * 7 + 3) % s;
+    rect(ctx, joint, y, 1, rowH - 1, line);
+  }
+  rect(ctx, 0, 0, s, 1, "rgba(0,0,0,0.22)");
+}
+
+const WOODS = {
+  spruce: {
+    bark: ["#5c4526", "#4f3b20", "#684e2b", "#573f23"],
+    barkDark: "#3f2f19",
+    barkLight: "#7a5c34",
+    top: "#8a6a3c",
+    topPalette: ["#8a6a3c", "#7e5f35", "#967444"],
+    topDark: "#6b4f2c",
+    topLight: "#a07c4a",
+    leaves: ["#2f5233", "#294a2d", "#365c3a", "#244227"],
+    leavesDark: "#1c351f",
+    leavesLight: "#42694a",
+    planks: ["#6b5130", "#614829", "#755a36", "#5b4325"],
+    planksLine: "#3f2f19",
+  },
+  birch: {
+    bark: ["#d7d2c6", "#cfc9bd", "#e0dbd0", "#c5bfb2"],
+    barkDark: "#a8a294",
+    barkLight: "#efeadf",
+    top: "#b09a6a",
+    topPalette: ["#b09a6a", "#a58f60", "#bba575", "#9c8658"],
+    topDark: "#8f7a4e",
+    topLight: "#c4ae7c",
+    leaves: ["#5d8f45", "#54853d", "#679a4e", "#4b7a35"],
+    leavesDark: "#3f6b2c",
+    leavesLight: "#78ab5c",
+    planks: ["#c9bf9e", "#bfb493", "#d3c9a8", "#b5aa8a"],
+    planksLine: "#8f8468",
+  },
+  jungle: {
+    bark: ["#55421f", "#4a391a", "#604b24", "#513f1d"],
+    barkDark: "#3a2c13",
+    barkLight: "#6e5629",
+    top: "#a08454",
+    topPalette: ["#a08454", "#957a4c", "#ab8f5c", "#8b7145"],
+    topDark: "#7a6238",
+    topLight: "#b3976a",
+    leaves: ["#2f6b1f", "#295f1b", "#377a26", "#235416"],
+    leavesDark: "#1c4510",
+    leavesLight: "#479a32",
+    planks: ["#9a7444", "#8f6a3d", "#a68050", "#855f34"],
+    planksLine: "#5c4322",
+  },
+  acacia: {
+    bark: ["#6b4a2c", "#5f4026", "#77532f", "#664527"],
+    barkDark: "#4a3019",
+    barkLight: "#8a6338",
+    top: "#a55d33",
+    topPalette: ["#a55d33", "#9a552d", "#b0653a", "#8f4d28"],
+    topDark: "#7a3f20",
+    topLight: "#bd7042",
+    leaves: ["#4f7a26", "#46701f", "#588530", "#3f651b"],
+    leavesDark: "#345414",
+    leavesLight: "#6a9c3e",
+    planks: ["#a3602f", "#985829", "#ad6a35", "#8d5024"],
+    planksLine: "#6b3d1a",
+  },
+};
+
+for (const [name, wood] of Object.entries(WOODS)) {
+  PAINTERS[`${name}_log_side`] = (ctx, s, rng) =>
+    logSidePainter(ctx, s, rng, wood.bark, wood.barkDark, wood.barkLight);
+  PAINTERS[`${name}_log_top`] = (ctx, s, rng) =>
+    logTopPainter(
+      ctx,
+      s,
+      rng,
+      wood.top,
+      wood.topPalette,
+      wood.topDark,
+      wood.topLight,
+      wood.topDark,
+      wood.topLight,
+      wood.topDark
+    );
+  PAINTERS[`${name}_leaves`] = (ctx, s, rng) =>
+    leavesPainter(ctx, s, rng, wood.leaves, wood.leavesDark, wood.leavesLight, 8);
+  PAINTERS[`${name}_planks`] = (ctx, s, rng) =>
+    planksPainter(ctx, s, rng, wood.planks, wood.planksLine, "rgba(60,40,20,0.5)", "rgba(220,190,140,0.4)");
+}
+
+function plantBase(ctx, s) {
+  ctx.clearRect(0, 0, s, s);
+}
+
+Object.assign(PAINTERS, {
+  tall_grass(ctx, s, rng) {
+    plantBase(ctx, s);
+    for (let i = 0; i < 10; i++) {
+      const x = 1 + ((rng() * (s - 2)) | 0);
+      const h = 5 + ((rng() * 8) | 0);
+      const bend = rng() < 0.4 ? 1 : 0;
+      const color = ["#4f9e37", "#5fae45", "#438c2e", "#6bbb52"][(rng() * 4) | 0];
+      for (let j = 0; j < h; j++) {
+        const px = Math.min(s - 1, x + (j > h * 0.6 ? bend : 0));
+        px_(ctx, px, s - 1 - j, color);
+      }
+    }
+  },
+  flower_red(ctx, s, rng) {
+    plantBase(ctx, s);
+    stem(ctx, s, rng, "#3f7a2c", 6);
+    rect(ctx, 6, 2, 4, 4, "#c0392b");
+    rect(ctx, 7, 1, 2, 1, "#e74c3c");
+    rect(ctx, 5, 3, 1, 2, "#e74c3c");
+    rect(ctx, 10, 3, 1, 2, "#8e2a20");
+    rect(ctx, 7, 3, 2, 2, "#5a1a12");
+  },
+  flower_yellow(ctx, s, rng) {
+    plantBase(ctx, s);
+    stem(ctx, s, rng, "#3f7a2c", 7);
+    rect(ctx, 6, 2, 4, 4, "#d9b62b");
+    rect(ctx, 7, 1, 2, 1, "#f0d34a");
+    rect(ctx, 5, 3, 1, 2, "#f0d34a");
+    rect(ctx, 10, 3, 1, 2, "#a8861a");
+    rect(ctx, 7, 3, 2, 2, "#7a5f10");
+  },
+  dead_bush(ctx, s, rng) {
+    plantBase(ctx, s);
+    for (let i = 0; i < 9; i++) {
+      let x = 3 + ((rng() * (s - 6)) | 0);
+      let y = s - 2;
+      const h = 4 + ((rng() * 8) | 0);
+      const color = rng() < 0.5 ? "#6b4a1f" : "#7d5a28";
+      for (let j = 0; j < h; j++) {
+        px_(ctx, x, y, color);
+        if (rng() < 0.35) x += rng() < 0.5 ? -1 : 1;
+        y--;
+        if (y < 2) break;
+      }
+    }
+  },
+  cactus_side(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#48752c", "#426d28", "#4e7d31", "#3d6624"], "#33561d", "#5b8f3a", 0.1, 0.08);
+    rect(ctx, 0, 0, 1, s, "#2f4f1a");
+    rect(ctx, s - 1, 0, 1, s, "#2f4f1a");
+    for (let x = 3; x < s; x += 5) {
+      rect(ctx, x, 0, 1, s, "rgba(30,60,18,0.55)");
+    }
+    for (let i = 0; i < 14; i++) {
+      px_(ctx, (rng() * s) | 0, (rng() * s) | 0, "#d8e6b0");
+    }
+  },
+  cactus_top(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#5b8f3a", "#548534", "#639a41"], "#447028", "#6fac49", 0.1, 0.1);
+    ctx.strokeStyle = "rgba(40,70,24,0.7)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(1.5, 1.5, s - 3, s - 3);
+    rect(ctx, 6, 6, 4, 4, "#3f6b26");
+  },
+  podzol_top(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#7a5a2a", "#6f5124", "#856430", "#63481f"], "#543c18", "#967440", 0.13, 0.1);
+    for (let i = 0; i < 10; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 1 + ((rng() * 2) | 0), 1, "#4e6b28");
+    }
+  },
+  podzol_side(ctx, s, rng) {
+    PAINTERS.dirt(ctx, s, rng);
+    for (let x = 0; x < s; x++) {
+      const h = 3 + ((rng() * 3) | 0);
+      rect(ctx, x, 0, 1, h, rng() < 0.5 ? "#7a5a2a" : "#6f5124");
+      rect(ctx, x, 0, 1, 1, "#856430");
+    }
+  },
+  coarse_dirt(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#7d5636", "#735031", "#88603e", "#69492c"], "#5c3d24", "#946a45", 0.15, 0.1);
+    speckles(ctx, rng, s, 16, ["#5e3d25", "#b08055", "#6b4a2e"], 2);
+  },
+  red_sand(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#c67b45", "#bd7140", "#d18a52", "#b56739"], "#a35c31", "#dd9761", 0.1, 0.1);
+    for (let y = 2; y < s; y += 5) {
+      rect(ctx, 0, y, s, 1, "rgba(140,75,40,0.35)");
+      rect(ctx, 0, y + 1, s, 1, "rgba(240,180,130,0.25)");
+    }
+  },
+  sandstone_top(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#e3d9a6", "#ded29a", "#e9e0b2", "#d8ca8e"], "#c9bb80", "#f2ecc4", 0.1, 0.1);
+  },
+  sandstone_side(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#e0d6a2", "#dbcf96", "#e6ddac", "#d5c88a"], "#c6b87c", "#efe8bd", 0.08, 0.08);
+    rectangleBands(ctx, s, "#c2b478", "#f0e9c0");
+  },
+  red_sandstone_top(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#c67b45", "#bd7140", "#d18a52", "#b56739"], "#a35c31", "#dd9761", 0.1, 0.1);
+  },
+  red_sandstone_side(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#c17543", "#bd7140", "#c9804a", "#b56739"], "#a35c31", "#d18a52", 0.08, 0.08);
+    rectangleBands(ctx, s, "#9c552c", "#dd9761");
+  },
+  terracotta(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#985e43", "#905841", "#a06649", "#8a533d"], "#7a4834", "#ac7154", 0.12, 0.1);
+  },
+  white_terracotta(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#d5c2b0", "#cdbaa8", "#ddcbb9", "#c5b2a0"], "#b8a494", "#e6d6c6", 0.12, 0.1);
+  },
+  orange_terracotta(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#c96b3a", "#c06433", "#d27641", "#b85e2e"], "#a35427", "#de854f", 0.12, 0.1);
+  },
+  red_terracotta(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#8f3d2a", "#873824", "#9a442f", "#7f3320"], "#6e2c1b", "#a95138", 0.12, 0.1);
+  },
+  mossy_cobble(ctx, s, rng) {
+    PAINTERS.cobble(ctx, s, rng);
+    for (let i = 0; i < 22; i++) {
+      rect(
+        ctx,
+        (rng() * s) | 0,
+        (rng() * s) | 0,
+        1 + ((rng() * 2) | 0),
+        1 + ((rng() * 2) | 0),
+        rng() < 0.6 ? "rgba(70,110,45,0.65)" : "rgba(90,135,60,0.55)"
+      );
+    }
+  },
+  stone_bricks(ctx, s, rng) {
+    fill(ctx, s, "#5f5f5f");
+    const rows = 4;
+    const rowH = 4;
+    for (let row = 0; row < rows; row++) {
+      const y = row * rowH;
+      const offset = row % 2 === 0 ? 0 : 4;
+      for (let x = -8; x < s; x += 8) {
+        const bx = x + offset;
+        const g = 118 + ((rng() * 22) | 0);
+        rect(ctx, bx + 1, y, 7, rowH - 1, `rgb(${g},${g},${g})`);
+        rect(ctx, bx + 1, y, 7, 1, "rgba(255,255,255,0.14)");
+        rect(ctx, bx + 1, y + rowH - 2, 7, 1, "rgba(0,0,0,0.22)");
+      }
+    }
+  },
+  snow_side(ctx, s, rng) {
+    PAINTERS.dirt(ctx, s, rng);
+    for (let x = 0; x < s; x++) {
+      const h = 3 + ((rng() * 3) | 0);
+      rect(ctx, x, 0, 1, h, rng() < 0.5 ? "#f4f7fb" : "#e8eef6");
+      rect(ctx, x, 0, 1, 1, "#ffffff");
+      if (rng() < 0.6) px_(ctx, x, h, "#d3dff2");
+    }
+  },
+  netherrack(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#6b1f1f", "#611b1b", "#752424", "#571717"], "#4a1212", "#8a2e2e", 0.14, 0.1);
+    for (let i = 0; i < 12; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 1 + ((rng() * 2) | 0), 1, "#3f0f0f");
+    }
+  },
+  soul_sand(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#4a3b2f", "#44352a", "#514034", "#3d2f25"], "#33281f", "#5c4a3a", 0.14, 0.1);
+    for (let i = 0; i < 7; i++) {
+      const x = (rng() * (s - 3)) | 0;
+      const y = (rng() * (s - 3)) | 0;
+      rect(ctx, x, y, 3, 3, "#2b211a");
+      rect(ctx, x, y, 3, 1, "#3d2f25");
+    }
+  },
+  glowstone(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#a08040", "#96773a", "#aa8a47", "#8c6d34"], "#7a5e2c", "#bb9a52", 0.15, 0.12);
+    for (let i = 0; i < 26; i++) {
+      const x = (rng() * s) | 0;
+      const y = (rng() * s) | 0;
+      rect(ctx, x, y, 1 + ((rng() * 2) | 0), 1 + ((rng() * 2) | 0), rng() < 0.6 ? "#ffdd66" : "#e8bb4a");
+    }
+  },
+  nether_bricks(ctx, s, rng) {
+    fill(ctx, s, "#2b1010");
+    const rowH = 4;
+    for (let row = 0; row < s / rowH; row++) {
+      const y = row * rowH;
+      const offset = row % 2 === 0 ? 0 : 4;
+      for (let x = -8; x < s; x += 8) {
+        const bx = x + offset;
+        const g = 50 + ((rng() * 20) | 0);
+        rect(ctx, bx + 1, y, 6, rowH - 1, `rgb(${g + 20},${(g * 0.45) | 0},${(g * 0.45) | 0})`);
+        rect(ctx, bx + 1, y, 6, 1, "rgba(255,120,120,0.12)");
+        rect(ctx, bx + 1, y + rowH - 2, 6, 1, "rgba(0,0,0,0.3)");
+      }
+    }
+  },
+  lava(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#d44a10", "#c9430e", "#e05414", "#b93c0c"], "#9e320a", "#f06a1a", 0.13, 0.12);
+    for (let i = 0; i < 14; i++) {
+      const x = (rng() * (s - 2)) | 0;
+      const y = (rng() * (s - 2)) | 0;
+      rect(ctx, x, y, 2, 2, rng() < 0.5 ? "#ffdd44" : "#f08a1a");
+    }
+    for (let i = 0; i < 8; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 2, 1, "#7a2508");
+    }
+  },
+  obsidian(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#100a1a", "#0c0714", "#151020", "#0a0611"], "#07040d", "#1d1430", 0.15, 0.1);
+    for (let i = 0; i < 14; i++) {
+      rect(
+        ctx,
+        (rng() * s) | 0,
+        (rng() * s) | 0,
+        1,
+        1 + ((rng() * 2) | 0),
+        rng() < 0.5 ? "rgba(90,60,160,0.5)" : "rgba(50,30,90,0.6)"
+      );
+    }
+  },
+  nether_portal(ctx, s, rng) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 0, 0, s, s, "rgba(122,48,192,0.88)");
+    for (let i = 0; i < 26; i++) {
+      const x = (rng() * s) | 0;
+      const y = (rng() * s) | 0;
+      rect(ctx, x, y, 1 + ((rng() * 2) | 0), 1, rng() < 0.5 ? "rgba(190,120,240,0.8)" : "rgba(80,20,140,0.8)");
+    }
+    for (let y = 0; y < s; y += 4) {
+      rect(ctx, 0, y, s, 1, "rgba(170,90,230,0.35)");
+    }
+  },
+  quartz_ore(ctx, s, rng) {
+    PAINTERS.netherrack(ctx, s, rng);
+    for (let i = 0; i < 6; i++) {
+      const x = 1 + ((rng() * (s - 4)) | 0);
+      const y = 1 + ((rng() * (s - 4)) | 0);
+      rect(ctx, x, y, 2, 2, "#e8e4dc");
+      rect(ctx, x, y, 2, 1, "#ffffff");
+      px_(ctx, x, y + 2, "#b8b4ac");
+    }
+  },
+  end_stone(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#dbdba0", "#d4d499", "#e2e2a8", "#cbcb90"], "#bdbd84", "#eeeeb8", 0.12, 0.1);
+    for (let i = 0; i < 10; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 1 + ((rng() * 2) | 0), 1 + ((rng() * 2) | 0), "rgba(150,150,100,0.4)");
+    }
+  },
+  purpur(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#a678b0", "#9d70a8", "#b080ba", "#946899"], "#855a8f", "#bd8cc7", 0.12, 0.1);
+    for (let i = 0; i < 8; i++) {
+      const x = (rng() * (s - 4)) | 0;
+      const y = (rng() * (s - 4)) | 0;
+      rect(ctx, x, y, 4, 1, "rgba(60,30,70,0.35)");
+      rect(ctx, x, y + 1, 1, 3, "rgba(60,30,70,0.25)");
+    }
+  },
+  end_portal_frame_top(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#2f6b5a", "#2a6152", "#357362", "#265a4b"], "#1f4c40", "#3f806e", 0.12, 0.1);
+    rect(ctx, 5, 5, 6, 6, "#12332b");
+    rect(ctx, 6, 6, 4, 4, "#0a1f1a");
+    rect(ctx, 7, 7, 2, 2, "#4fae8f");
+  },
+  end_portal_frame_side(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#2f6b5a", "#2a6152", "#357362", "#265a4b"], "#1f4c40", "#3f806e", 0.12, 0.1);
+    for (let i = 0; i < 6; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 1, 1, "#9fd8c4");
+    }
+  },
+  end_portal(ctx, s, rng) {
+    fill(ctx, s, "#05030a");
+    for (let i = 0; i < 22; i++) {
+      const x = (rng() * s) | 0;
+      const y = (rng() * s) | 0;
+      rect(ctx, x, y, 1, 1, rng() < 0.6 ? "#d8d4ff" : "#8a7ac0");
+    }
+    for (let i = 0; i < 6; i++) {
+      const x = (rng() * s) | 0;
+      const y = (rng() * s) | 0;
+      rect(ctx, x, y, 2, 1, "rgba(120,60,180,0.35)");
+    }
+  },
+  spawner(ctx, s, rng) {
+    fill(ctx, s, "#1c1c22");
+    ctx.strokeStyle = "#4a4a54";
+    ctx.lineWidth = 1;
+    for (let i = 2; i < s; i += 4) {
+      ctx.beginPath();
+      ctx.moveTo(i + 0.5, 1);
+      ctx.lineTo(i + 0.5, s - 1);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(1, i + 0.5);
+      ctx.lineTo(s - 1, i + 0.5);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 10; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 1, 1, "#6a6a78");
+    }
+    rect(ctx, 6, 6, 4, 4, "rgba(160,40,40,0.5)");
+  },
+});
+
+function px_(ctx, x, y, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, 1, 1);
+}
+
+function stem(ctx, s, rng, color, top) {
+  const x = 7 + (rng() < 0.5 ? 1 : 0);
+  for (let y = top; y < s - 1; y++) {
+    px_(ctx, x, y, color);
+  }
+  px_(ctx, x - 1, s - 5, color);
+  px_(ctx, x + 1, s - 7, color);
+}
+
+function rectangleBands(ctx, s, dark, light) {
+  for (let y = 3; y < s; y += 4) {
+    rect(ctx, 0, y, s, 1, dark);
+    rect(ctx, 0, y + 1, s, 1, light);
+  }
+}
+
+function makeGrassTint(palette, dark, light) {
+  return (ctx, s, rng) => {
+    noiseFill(ctx, rng, s, palette, dark, light, 0.12, 0.08);
+    for (let i = 0; i < 12; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 1 + ((rng() * 2) | 0), 1, dark);
+    }
+    for (let i = 0; i < 5; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 2, 1, "rgba(0,0,0,0.1)");
+    }
+  };
+}
+
+PAINTERS.grass_top_forest = makeGrassTint(["#4f9e37", "#489631", "#57a63f", "#428c2b"], "#397a25", "#66bb4c");
+PAINTERS.grass_top_savanna = makeGrassTint(["#8a9a3a", "#829234", "#94a344", "#7a8a2e"], "#6b7826", "#a5b455");
+PAINTERS.grass_top_swamp = makeGrassTint(["#4a6b2a", "#445f24", "#527630", "#3d5720"], "#354c1a", "#5f8538");
+PAINTERS.grass_top_badlands = makeGrassTint(["#6b6b2a", "#635f24", "#777730", "#5b5720"], "#4e4a1a", "#8a8a3e");
 
 const TILE_NAMES = Object.keys(PAINTERS);
 

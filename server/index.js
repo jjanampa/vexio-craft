@@ -14,9 +14,23 @@ const WORLD_HEIGHT = 64;
 const MAX_PLAYERS = 32;
 const TICK_MS = 80;
 const COORD_LIMIT = 1e7;
+const DIMENSIONS = ["overworld", "nether", "end"];
 
-let seed = Math.floor(Math.random() * 1e9);
-const edits = new Map();
+function deriveSeed(seed, n) {
+  return Math.abs((seed * 31 + n * 1013904223) % 1000000000);
+}
+
+function makeDimension(seed) {
+  return { seed, edits: new Map() };
+}
+
+let dims = {
+  overworld: makeDimension(Math.floor(Math.random() * 1e9)),
+  nether: makeDimension(0),
+  end: makeDimension(0),
+};
+dims.nether.seed = deriveSeed(dims.overworld.seed, 1);
+dims.end.seed = deriveSeed(dims.overworld.seed, 2);
 
 const worldFile = path.join(DATA_DIR, "world.json");
 
@@ -35,24 +49,48 @@ function validEdit(x, y, z, id) {
   );
 }
 
+function applyEdits(target, list) {
+  for (const edit of list || []) {
+    const [x, y, z, id] = edit;
+    if (validEdit(x, y, z, id)) target.edits.set(`${x},${y},${z}`, [x, y, z, id]);
+  }
+}
+
 function loadWorld() {
   try {
     const data = JSON.parse(fs.readFileSync(worldFile, "utf8"));
-    if (Number.isInteger(data.seed)) seed = data.seed;
-    for (const edit of data.edits || []) {
-      const [x, y, z, id] = edit;
-      if (validEdit(x, y, z, id)) edits.set(`${x},${y},${z}`, [x, y, z, id]);
+    if (data.dimensions) {
+      const seed = data.dimensions.overworld?.seed;
+      if (Number.isInteger(seed)) dims.overworld.seed = seed;
+      for (const dim of DIMENSIONS) {
+        const info = data.dimensions[dim];
+        if (!info) continue;
+        if (Number.isInteger(info.seed)) dims[dim].seed = info.seed;
+        applyEdits(dims[dim], info.edits);
+      }
+      if (!Number.isInteger(data.dimensions.nether?.seed)) dims.nether.seed = deriveSeed(dims.overworld.seed, 1);
+      if (!Number.isInteger(data.dimensions.end?.seed)) dims.end.seed = deriveSeed(dims.overworld.seed, 2);
+    } else if (Number.isInteger(data.seed)) {
+      dims.overworld.seed = data.seed;
+      dims.nether.seed = deriveSeed(data.seed, 1);
+      dims.end.seed = deriveSeed(data.seed, 2);
+      applyEdits(dims.overworld, data.edits);
     }
-    console.log(`Mundo cargado: semilla ${seed}, ${edits.size} ediciones`);
+    const counts = DIMENSIONS.map((d) => `${d}:${dims[d].edits.size}`).join(" ");
+    console.log(`Mundo cargado: semilla ${dims.overworld.seed} (${counts})`);
   } catch {
-    console.log(`Mundo nuevo: semilla ${seed}`);
+    console.log(`Mundo nuevo: semilla ${dims.overworld.seed}`);
   }
 }
 
 function saveWorld() {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(worldFile, JSON.stringify({ seed, edits: [...edits.values()] }));
+    const dimensions = {};
+    for (const dim of DIMENSIONS) {
+      dimensions[dim] = { seed: dims[dim].seed, edits: [...dims[dim].edits.values()] };
+    }
+    fs.writeFileSync(worldFile, JSON.stringify({ dimensions }));
   } catch (error) {
     console.error("No se pudo guardar el mundo:", error.message);
   }
@@ -84,7 +122,9 @@ app.use(
   })
 );
 app.get("/healthz", (req, res) => {
-  res.json({ ok: true, seed, edits: edits.size, players: players.size });
+  const counts = {};
+  for (const dim of DIMENSIONS) counts[dim] = { seed: dims[dim].seed, edits: dims[dim].edits.size };
+  res.json({ ok: true, dimensions: counts, players: players.size });
 });
 app.use((req, res) => {
   if (req.method !== "GET" && req.method !== "HEAD") return res.status(405).end();
@@ -106,7 +146,7 @@ function sanitizeName(raw) {
 }
 
 function publicPlayer(p) {
-  return { id: p.id, name: p.name, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch };
+  return { id: p.id, name: p.name, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, dim: p.dim };
 }
 
 function send(ws, message) {
@@ -119,6 +159,28 @@ function broadcast(message, except) {
     if (ws === except) continue;
     if (ws.readyState === ws.OPEN) ws.send(raw);
   }
+}
+
+function broadcastDim(dim, message, except) {
+  const raw = JSON.stringify(message);
+  for (const [ws, p] of players) {
+    if (ws === except || p.dim !== dim) continue;
+    if (ws.readyState === ws.OPEN) ws.send(raw);
+  }
+}
+
+function welcomePayload(player) {
+  const dimsPayload = {};
+  for (const dim of DIMENSIONS) {
+    dimsPayload[dim] = { seed: dims[dim].seed, edits: [...dims[dim].edits.values()] };
+  }
+  return {
+    t: "welcome",
+    id: player.id,
+    dim: player.dim,
+    dims: dimsPayload,
+    players: [...players.values()].filter((p) => p !== player).map(publicPlayer),
+  };
 }
 
 function withinRate(p, field, limit) {
@@ -146,6 +208,7 @@ wss.on("connection", (ws, req) => {
     z: 8.5,
     yaw: 0,
     pitch: 0,
+    dim: "overworld",
     stateStart: 0,
     stateCount: 0,
     editStart: 0,
@@ -153,14 +216,8 @@ wss.on("connection", (ws, req) => {
   };
   players.set(ws, player);
 
-  send(ws, {
-    t: "welcome",
-    id: player.id,
-    seed,
-    players: [...players.values()].filter((p) => p !== player).map(publicPlayer),
-    edits: [...edits.values()],
-  });
-  broadcast({ t: "join", player: publicPlayer(player) }, ws);
+  send(ws, welcomePayload(player));
+  broadcastDim(player.dim, { t: "join", player: publicPlayer(player) }, ws);
 
   ws.on("message", (data) => {
     let msg;
@@ -173,21 +230,47 @@ wss.on("connection", (ws, req) => {
 
     if (msg.t === "state") {
       if (!withinRate(player, "state", 60)) return;
-      const { x, y, z, yaw, pitch } = msg;
+      const { x, y, z, yaw, pitch, dim } = msg;
       if (![x, y, z, yaw, pitch].every((v) => typeof v === "number" && Number.isFinite(v))) return;
       player.x = Math.max(-COORD_LIMIT, Math.min(COORD_LIMIT, x));
       player.y = Math.max(-64, Math.min(WORLD_HEIGHT + 64, y));
       player.z = Math.max(-COORD_LIMIT, Math.min(COORD_LIMIT, z));
       player.yaw = yaw;
       player.pitch = pitch;
-    } else if (msg.t === "edit") {
+      if (DIMENSIONS.includes(dim) && dim !== player.dim) {
+        broadcastDim(player.dim, { t: "leave", id: player.id, name: player.name });
+        player.dim = dim;
+        broadcastDim(player.dim, { t: "join", player: publicPlayer(player) });
+      }
+      return;
+    }
+
+    if (msg.t === "dim") {
+      if (!DIMENSIONS.includes(msg.dim) || msg.dim === player.dim) return;
+      const { x, y, z } = msg;
+      if ([x, y, z].every((v) => typeof v === "number" && Number.isFinite(v))) {
+        player.x = Math.max(-COORD_LIMIT, Math.min(COORD_LIMIT, x));
+        player.y = Math.max(-64, Math.min(WORLD_HEIGHT + 64, y));
+        player.z = Math.max(-COORD_LIMIT, Math.min(COORD_LIMIT, z));
+      }
+      broadcastDim(player.dim, { t: "leave", id: player.id, name: player.name });
+      player.dim = msg.dim;
+      broadcastDim(player.dim, { t: "join", player: publicPlayer(player) });
+      return;
+    }
+
+    if (msg.t === "edit") {
       if (!withinRate(player, "edit", 40)) return;
+      const dim = DIMENSIONS.includes(msg.dim) ? msg.dim : player.dim;
       const { x, y, z, id: blockId } = msg;
       if (!validEdit(x, y, z, blockId)) return;
-      edits.set(`${x},${y},${z}`, [x, y, z, blockId]);
+      dims[dim].edits.set(`${x},${y},${z}`, [x, y, z, blockId]);
       scheduleSave();
-      broadcast({ t: "edit", x, y, z, id: blockId }, ws);
-    } else if (msg.t === "rename") {
+      broadcastDim(dim, { t: "edit", dim, x, y, z, id: blockId }, ws);
+      return;
+    }
+
+    if (msg.t === "rename") {
       const name = sanitizeName(msg.name);
       if (!name || name === player.name) return;
       player.name = name;
@@ -197,14 +280,19 @@ wss.on("connection", (ws, req) => {
 
   ws.on("close", () => {
     players.delete(ws);
-    broadcast({ t: "leave", id: player.id, name: player.name });
+    broadcastDim(player.dim, { t: "leave", id: player.id, name: player.name });
   });
   ws.on("error", () => {});
 });
 
 setInterval(() => {
   if (players.size === 0) return;
-  broadcast({ t: "state", players: [...players.values()].map(publicPlayer) });
+  for (const [ws] of players) {
+    if (ws.readyState !== ws.OPEN) continue;
+    const p = players.get(ws);
+    const sameDim = [...players.values()].filter((other) => other.dim === p.dim).map(publicPlayer);
+    send(ws, { t: "state", players: sameDim });
+  }
 }, TICK_MS);
 
 function shutdown() {

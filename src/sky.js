@@ -205,6 +205,7 @@ export class Sky {
       fog: false,
     });
     const stars = new THREE.Points(starGeometry, this.starMaterial);
+    this.stars = stars;
     this.group.add(stars);
 
     this.sunSprite = new THREE.Sprite(
@@ -264,6 +265,7 @@ export class Sky {
     this.group.add(this.clouds);
 
     this.brightness = 1;
+    this.dimension = "overworld";
     this.fogColor = new THREE.Color(0xbfe0ff);
     this.near = RENDER_DISTANCE * CHUNK_SIZE * 0.5;
     this.far = RENDER_DISTANCE * CHUNK_SIZE * 0.95;
@@ -271,7 +273,55 @@ export class Sky {
     this.tmpColor = new THREE.Color();
   }
 
+  setDimension(dim) {
+    this.dimension = dim;
+    const nether = dim === "nether";
+    const end = dim === "end";
+    const overworld = dim === "overworld";
+    this.group.children.forEach((child) => {
+      if (child === this.stars) child.visible = !nether;
+      else if (child === this.clouds) child.visible = overworld;
+      else if (child === this.sunSprite || child === this.moonSprite) child.visible = overworld;
+      else child.visible = !nether;
+    });
+    this.clouds.visible = overworld;
+    this.sun.visible = !nether;
+    this.sun.castShadow = !IS_TOUCH && overworld;
+    this.stars.visible = !nether;
+  }
+
   update(dt, playerPos, time, camera) {
+    if (this.dimension !== "overworld") {
+      this.group.position.copy(playerPos);
+      if (this.dimension === "nether") {
+        this.sun.position.copy(playerPos).add(new THREE.Vector3(0, 60, 0));
+        this.sun.target.position.copy(playerPos);
+        this.sun.target.updateMatrixWorld();
+        this.sun.color.setHex(0xff9a6a);
+        this.sun.intensity = 0.42;
+        this.hemi.color.setHex(0xff8a5a);
+        this.hemi.groundColor.setHex(0x3a1a12);
+        this.hemi.intensity = 0.5;
+        this.fogColor.setHex(0x320a06);
+        this.brightness = 0.35;
+      } else {
+        this.sun.position.copy(playerPos).add(new THREE.Vector3(0, 60, 0));
+        this.sun.target.position.copy(playerPos);
+        this.sun.target.updateMatrixWorld();
+        this.sun.color.setHex(0xcfd8ff);
+        this.sun.intensity = 0.38;
+        this.hemi.color.setHex(0x5a5a80);
+        this.hemi.groundColor.setHex(0x1a1a22);
+        this.hemi.intensity = 0.42;
+        this.fogColor.setHex(0x0b0a14);
+        this.uniforms.topColor.value.setHex(0x05050c);
+        this.uniforms.bottomColor.value.setHex(0x101020);
+        this.starMaterial.opacity = 0.55;
+        this.brightness = 0.3;
+      }
+      return new THREE.Vector3(0, -1, 0);
+    }
+    this.stars.visible = true;
     const angle = (time - 0.25) * Math.PI * 2;
     const sunDir = new THREE.Vector3(Math.cos(angle) * 0.55, Math.sin(angle), 0.42).normalize();
     const elevation = sunDir.y;
