@@ -4,7 +4,7 @@ const TILE = 16;
 const PAD = 4;
 const CELL = TILE + PAD * 2;
 const COLS = 8;
-const ROWS = 12;
+const ROWS = 14;
 
 function fill(ctx, s, color) {
   ctx.fillStyle = color;
@@ -777,6 +777,172 @@ PAINTERS.grass_top_forest = makeGrassTint(["#4f9e37", "#489631", "#57a63f", "#42
 PAINTERS.grass_top_savanna = makeGrassTint(["#8a9a3a", "#829234", "#94a344", "#7a8a2e"], "#6b7826", "#a5b455");
 PAINTERS.grass_top_swamp = makeGrassTint(["#4a6b2a", "#445f24", "#527630", "#3d5720"], "#354c1a", "#5f8538");
 PAINTERS.grass_top_badlands = makeGrassTint(["#6b6b2a", "#635f24", "#777730", "#5b5720"], "#4e4a1a", "#8a8a3e");
+
+const TOOL_MATS = {
+  wood: { main: "#9a6b3a", dark: "#6f4a24", light: "#c08a4e", handle: "#7a5230", handleDark: "#54371d" },
+  stone: { main: "#9a9a9a", dark: "#6e6e6e", light: "#c8c8c8", handle: "#7a5230", handleDark: "#54371d" },
+  iron: { main: "#d8d8d8", dark: "#a0a0a0", light: "#ffffff", handle: "#7a5230", handleDark: "#54371d" },
+  diamond: { main: "#4fd8c8", dark: "#2a9a8c", light: "#a5f5ec", handle: "#7a5230", handleDark: "#54371d" },
+};
+
+const ARMOR_MATS = {
+  leather: { main: "#9a6432", dark: "#6b4220", light: "#c08a4e" },
+  iron: { main: "#cfcfcf", dark: "#969696", light: "#f2f2f2" },
+  diamond: { main: "#4fd8c8", dark: "#2a9a8c", light: "#a5f5ec" },
+};
+
+function diagPixels(ctx, x0, y0, steps, dx, dy, color) {
+  let x = x0;
+  let y = y0;
+  for (let i = 0; i < steps; i++) {
+    px_(ctx, x, y, color);
+    x += dx;
+    y += dy;
+  }
+}
+
+function toolHandle(ctx) {
+  diagPixels(ctx, 1, 14, 7, 1, -1, "#54371d");
+  diagPixels(ctx, 2, 14, 7, 1, -1, "#7a5230");
+  diagPixels(ctx, 3, 14, 5, 1, -1, "#8f6238");
+}
+
+function swordPainter(c) {
+  return (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    toolHandle(ctx);
+    rect(ctx, 3, 10, 6, 1, c.dark);
+    rect(ctx, 4, 11, 5, 1, c.main);
+    rect(ctx, 5, 12, 3, 1, c.dark);
+    for (let i = 0; i < 7; i++) {
+      px_(ctx, 7 + i, 9 - i, c.light);
+      px_(ctx, 8 + i, 9 - i, c.main);
+      px_(ctx, 8 + i, 10 - i, c.dark);
+    }
+    px_(ctx, 14, 2, c.light);
+    px_(ctx, 15, 3, c.main);
+    px_(ctx, 15, 4, c.dark);
+  };
+}
+
+function pickaxePainter(c) {
+  return (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    toolHandle(ctx);
+    rect(ctx, 5, 3, 7, 2, c.main);
+    rect(ctx, 3, 4, 3, 4, c.main);
+    rect(ctx, 11, 4, 3, 4, c.main);
+    rect(ctx, 5, 2, 6, 1, c.light);
+    rect(ctx, 6, 5, 5, 1, c.dark);
+    px_(ctx, 3, 8, c.dark);
+    px_(ctx, 13, 8, c.dark);
+    px_(ctx, 4, 4, c.light);
+    px_(ctx, 12, 4, c.light);
+    rect(ctx, 3, 3, 2, 1, c.light);
+    rect(ctx, 12, 3, 2, 1, c.light);
+  };
+}
+
+function axePainter(c) {
+  return (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    toolHandle(ctx);
+    rect(ctx, 7, 2, 6, 7, c.main);
+    rect(ctx, 8, 1, 4, 1, c.main);
+    rect(ctx, 7, 2, 5, 1, c.light);
+    rect(ctx, 13, 3, 1, 5, c.dark);
+    rect(ctx, 7, 8, 6, 1, c.dark);
+    rect(ctx, 8, 4, 2, 2, c.dark);
+    px_(ctx, 12, 5, c.light);
+    px_(ctx, 8, 1, c.light);
+  };
+}
+
+function shovelPainter(c) {
+  return (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    toolHandle(ctx);
+    rect(ctx, 9, 2, 5, 5, c.main);
+    rect(ctx, 10, 1, 3, 1, c.main);
+    rect(ctx, 9, 2, 4, 1, c.light);
+    rect(ctx, 9, 6, 5, 1, c.dark);
+    rect(ctx, 13, 3, 1, 3, c.dark);
+    px_(ctx, 10, 1, c.light);
+  };
+}
+
+function helmetPainter(c) {
+  return (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 5, 2, 6, 1, c.light);
+    rect(ctx, 4, 3, 8, 2, c.main);
+    rect(ctx, 3, 5, 10, 3, c.main);
+    rect(ctx, 4, 5, 1, 2, c.light);
+    rect(ctx, 11, 5, 1, 2, c.dark);
+    rect(ctx, 3, 8, 10, 1, c.dark);
+    rect(ctx, 5, 6, 6, 2, "#241d17");
+  };
+}
+
+function chestPainter(c) {
+  return (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 4, 2, 8, 3, c.main);
+    rect(ctx, 2, 3, 2, 6, c.main);
+    rect(ctx, 12, 3, 2, 6, c.main);
+    rect(ctx, 5, 5, 6, 8, c.main);
+    rect(ctx, 5, 2, 6, 1, c.light);
+    rect(ctx, 2, 3, 1, 5, c.light);
+    rect(ctx, 13, 3, 1, 5, c.dark);
+    rect(ctx, 5, 12, 6, 1, c.dark);
+    rect(ctx, 10, 5, 1, 7, c.dark);
+    rect(ctx, 7, 2, 2, 1, "#241d17");
+  };
+}
+
+function legsPainter(c) {
+  return (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 4, 2, 8, 2, c.main);
+    rect(ctx, 4, 4, 3, 9, c.main);
+    rect(ctx, 9, 4, 3, 9, c.main);
+    rect(ctx, 4, 2, 8, 1, c.light);
+    rect(ctx, 4, 4, 1, 8, c.light);
+    rect(ctx, 11, 4, 1, 8, c.dark);
+    rect(ctx, 4, 12, 3, 1, c.dark);
+    rect(ctx, 9, 12, 3, 1, c.dark);
+    rect(ctx, 7, 4, 2, 9, "#241d17");
+  };
+}
+
+function bootsPainter(c) {
+  return (ctx, s) => {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 3, 7, 4, 5, c.main);
+    rect(ctx, 9, 7, 4, 5, c.main);
+    rect(ctx, 2, 11, 5, 2, c.main);
+    rect(ctx, 8, 11, 5, 2, c.main);
+    rect(ctx, 3, 7, 4, 1, c.light);
+    rect(ctx, 9, 7, 4, 1, c.light);
+    rect(ctx, 2, 12, 12, 1, c.dark);
+    rect(ctx, 6, 10, 1, 2, c.dark);
+    rect(ctx, 12, 10, 1, 2, c.dark);
+  };
+}
+
+for (const [key, mat] of Object.entries(TOOL_MATS)) {
+  PAINTERS[`sword_${key}`] = swordPainter(mat);
+  PAINTERS[`pickaxe_${key}`] = pickaxePainter(mat);
+  PAINTERS[`axe_${key}`] = axePainter(mat);
+  PAINTERS[`shovel_${key}`] = shovelPainter(mat);
+}
+
+for (const [key, mat] of Object.entries(ARMOR_MATS)) {
+  PAINTERS[`helmet_${key}`] = helmetPainter(mat);
+  PAINTERS[`chest_${key}`] = chestPainter(mat);
+  PAINTERS[`legs_${key}`] = legsPainter(mat);
+  PAINTERS[`boots_${key}`] = bootsPainter(mat);
+}
 
 const TILE_NAMES = Object.keys(PAINTERS);
 

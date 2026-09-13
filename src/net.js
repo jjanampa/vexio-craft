@@ -84,6 +84,9 @@ export class Net {
       case "edit":
         this.handlers.onEdit?.(msg);
         break;
+      case "anim":
+        this.handlers.onSwing?.(msg.id, msg.a);
+        break;
     }
   }
 
@@ -92,12 +95,16 @@ export class Net {
     this.ws.send(JSON.stringify(message));
   }
 
-  sendState(x, y, z, yaw, pitch, dim) {
-    this.send({ t: "state", x, y, z, yaw, pitch, dim });
+  sendState(x, y, z, yaw, pitch, dim, item, armor) {
+    this.send({ t: "state", x, y, z, yaw, pitch, dim, item, armor });
   }
 
   sendEdit(x, y, z, id, dim) {
     this.send({ t: "edit", x, y, z, id, dim });
+  }
+
+  sendSwing() {
+    this.send({ t: "anim", a: "swing" });
   }
 
   sendDim(dim, x, y, z) {

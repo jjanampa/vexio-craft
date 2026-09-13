@@ -146,7 +146,18 @@ function sanitizeName(raw) {
 }
 
 function publicPlayer(p) {
-  return { id: p.id, name: p.name, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, dim: p.dim };
+  return {
+    id: p.id,
+    name: p.name,
+    x: p.x,
+    y: p.y,
+    z: p.z,
+    yaw: p.yaw,
+    pitch: p.pitch,
+    dim: p.dim,
+    item: p.item,
+    armor: p.armor,
+  };
 }
 
 function send(ws, message) {
@@ -209,10 +220,14 @@ wss.on("connection", (ws, req) => {
     yaw: 0,
     pitch: 0,
     dim: "overworld",
+    item: 0,
+    armor: [0, 0, 0, 0],
     stateStart: 0,
     stateCount: 0,
     editStart: 0,
     editCount: 0,
+    animStart: 0,
+    animCount: 0,
   };
   players.set(ws, player);
 
@@ -237,6 +252,14 @@ wss.on("connection", (ws, req) => {
       player.z = Math.max(-COORD_LIMIT, Math.min(COORD_LIMIT, z));
       player.yaw = yaw;
       player.pitch = pitch;
+      if (Number.isInteger(msg.item) && msg.item >= 0 && msg.item <= 65535) player.item = msg.item;
+      if (
+        Array.isArray(msg.armor) &&
+        msg.armor.length === 4 &&
+        msg.armor.every((v) => Number.isInteger(v) && v >= 0 && v <= 65535)
+      ) {
+        player.armor = msg.armor;
+      }
       if (DIMENSIONS.includes(dim) && dim !== player.dim) {
         broadcastDim(player.dim, { t: "leave", id: player.id, name: player.name });
         player.dim = dim;
@@ -267,6 +290,13 @@ wss.on("connection", (ws, req) => {
       dims[dim].edits.set(`${x},${y},${z}`, [x, y, z, blockId]);
       scheduleSave();
       broadcastDim(dim, { t: "edit", dim, x, y, z, id: blockId }, ws);
+      return;
+    }
+
+    if (msg.t === "anim") {
+      if (!withinRate(player, "anim", 10)) return;
+      if (msg.a !== "swing") return;
+      broadcastDim(player.dim, { t: "anim", id: player.id, a: "swing" }, ws);
       return;
     }
 

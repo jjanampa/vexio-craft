@@ -70,6 +70,15 @@ export class Input {
         if (n >= 1 && n <= 9) this.callbacks.onHotbar?.(n - 1);
       }
       if (e.code === "KeyF") this.callbacks.onFly?.();
+      if (e.code === "KeyE") {
+        e.preventDefault();
+        this.callbacks.onInventory?.();
+      }
+      if (e.code === "F5" || e.code === "KeyV") {
+        e.preventDefault();
+        this.callbacks.onCamera?.();
+      }
+      if (e.code === "Escape") this.callbacks.onEscape?.();
       if (e.code === "Space") e.preventDefault();
     });
 
@@ -108,6 +117,8 @@ export class Input {
     const jumpBtn = makeButton("btn-touch-jump", "⤒");
     const mineBtn = makeButton("btn-touch-mine", "⛏");
     const placeBtn = makeButton("btn-touch-place", "▣");
+    const invBtn = makeButton("btn-touch-inv", "🎒");
+    const camBtn = makeButton("btn-touch-cam", "👁");
 
     layer.appendChild(joy);
     layer.appendChild(buttons);
@@ -164,6 +175,8 @@ export class Input {
     hold(mineBtn, () => (this.touchMine = true), () => (this.touchMine = false));
     hold(placeBtn, () => this.callbacks.onPlace?.());
     hold(flyBtn, () => this.callbacks.onFly?.());
+    hold(invBtn, () => this.callbacks.onInventory?.());
+    hold(camBtn, () => this.callbacks.onCamera?.());
   }
 
   setTouchUiVisible(visible) {

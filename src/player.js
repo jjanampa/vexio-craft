@@ -33,6 +33,7 @@ export class Player {
     this.mode = "creative";
     this.maxHealth = MAX_HEALTH;
     this.health = MAX_HEALTH;
+    this.armorReduction = 0;
     this.dead = false;
     this.time = 0;
     this.lastDamage = -99;
@@ -76,7 +77,8 @@ export class Player {
 
   damage(amount) {
     if (this.mode !== "survival" || this.dead || amount <= 0) return;
-    this.health = Math.max(0, this.health - amount);
+    const reduced = Math.max(0.5, Math.round(amount * (1 - this.armorReduction) * 2) / 2);
+    this.health = Math.max(0, this.health - reduced);
     this.lastDamage = this.time;
     this.regenTimer = 0;
     this.onDamage?.(amount);

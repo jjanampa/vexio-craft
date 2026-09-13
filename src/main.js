@@ -16,7 +16,6 @@ import {
   OBSIDIAN,
   NETHER_PORTAL,
   END_PORTAL,
-  HOTBAR,
   BLOCKS,
   isLiquid,
   isLava,
@@ -27,6 +26,17 @@ import {
   breakTime,
   faceTile,
 } from "./blocks.js";
+import {
+  DEFAULT_HOTBAR,
+  isArmor,
+  armorSlotOf,
+  armorPoints,
+  armorReduction,
+  attackPower,
+  mineSpeed,
+  itemName,
+  placeable,
+} from "./items.js";
 import { createAtlas, createCrackStrip, averageTileColors } from "./textures.js";
 import { World, BIOME_NAMES, DIMENSION_NAMES } from "./world.js";
 import { tryIgnitePortal, ensurePortal } from "./portals.js";
@@ -40,6 +50,8 @@ import { saveGame, loadGame, hasSave } from "./storage.js";
 import { Net } from "./net.js";
 import { RemotePlayers } from "./remotePlayers.js";
 import { Hand } from "./hand.js";
+import { Avatar } from "./avatar.js";
+import { Mobs } from "./mobs.js";
 
 const app = document.getElementById("app");
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -118,7 +130,10 @@ materialWater.onBeforeCompile = (shader) => {
 };
 
 const hand = new Hand(atlas, texture);
-hand.setBlock(HOTBAR[0]);
+hand.setHeld(DEFAULT_HOTBAR[0]);
+const selfAvatar = new Avatar({ color: 0x3fb8a8, atlas, texture });
+selfAvatar.group.visible = false;
+scene.add(selfAvatar.group);
 
 const outline = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
@@ -178,9 +193,9 @@ const particleData = new Array(PARTICLE_COUNT).fill(null);
 const particleDummy = new THREE.Object3D();
 const particleColor = new THREE.Color();
 
-function spawnParticles(x, y, z, blockId, count, speed) {
-  const tile = faceTile(blockId, 4) || faceTile(blockId, 2) || "stone";
-  const rgb = tileColors[tile] || [1, 1, 1];
+function spawnParticles(x, y, z, blockId, count, speed, overrideRgb = null) {
+  const tile = blockId ? faceTile(blockId, 4) || faceTile(blockId, 2) || "stone" : null;
+  const rgb = overrideRgb || tileColors[tile] || [1, 1, 1];
   for (let i = 0; i < count; i++) {
     const slot = particleData.findIndex((p) => p === null);
     if (slot === -1) return;
@@ -240,7 +255,7 @@ function updateParticles(dt) {
 }
 
 const sky = new Sky(scene);
-const remotePlayers = new RemotePlayers(scene);
+const remotePlayers = new RemotePlayers(scene, { atlas, texture });
 
 const NAME_KEY = "vexio-craft-name-v1";
 const MP_TIMEOUT = 3500;
@@ -292,6 +307,8 @@ let started = false;
 let ready = false;
 let mode = "creative";
 let currentTarget = null;
+let currentMob = null;
+let attackCooldown = 0;
 let miningProgress = 0;
 let miningKey = null;
 let miningSound = 0;
@@ -305,12 +322,24 @@ let stepOdometer = 0;
 let elapsed = 0;
 let underwater = false;
 let underwaterLava = false;
+let inventoryOpen = false;
+let cameraMode = 0;
+let pauseBlockUntil = 0;
+let prevVelY = 0;
+const hotbar = [...DEFAULT_HOTBAR];
+const equipment = [0, 0, 0, 0];
 const underwaterEl = document.getElementById("underwater");
 
 const sfx = new Sfx();
+const mobs = new Mobs(scene, {
+  sfx,
+  onAttack: (damage) => player?.damage(damage),
+  onPoof: (pos, rgb, count, speed) =>
+    spawnParticles(pos.x - 0.5, pos.y - 0.5, pos.z - 0.5, 0, count, speed, rgb),
+});
 const ui = new UI({
   atlas,
-  hotbar: HOTBAR,
+  hotbar,
   onContinue: () => {
     if (input.touch) {
       if (!started) {
@@ -337,6 +366,9 @@ const ui = new UI({
       doSave(false);
     }
   },
+  onInventoryPick: (id) => assignToSlot(id),
+  onEquip: (slot) => toggleArmorSlot(slot),
+  onCloseInventory: () => closeInventory(),
   onNameChange: (raw) => {
     const name = sanitizeName(raw) || randomName();
     playerName = name;
@@ -358,15 +390,23 @@ const input = new Input(renderer.domElement, {
       }
       ui.hideMenu();
       sfx.resume();
-    } else if (started) {
+    } else if (started && !inventoryOpen && performance.now() >= pauseBlockUntil) {
       ui.showMenu("pause");
       doSave(false);
     }
   },
   onPlace: () => tryPlace(),
   onPick: () => pickBlock(),
-  onWheel: (dir) => selectSlot((selectedSlot + dir + HOTBAR.length) % HOTBAR.length),
+  onWheel: (dir) => selectSlot((selectedSlot + dir + hotbar.length) % hotbar.length),
   onHotbar: (i) => selectSlot(i),
+  onInventory: () => toggleInventory(),
+  onCamera: () => toggleCamera(),
+  onEscape: () => {
+    if (inventoryOpen) {
+      pauseBlockUntil = performance.now() + 400;
+      closeInventory();
+    }
+  },
   onFly: () => {
     if (!started) return;
     if (mode !== "creative") {
@@ -401,6 +441,9 @@ const net = new Net({
     ui.setMultiplayer(true, local.length);
   },
   onEdit: (msg) => applyRemoteEdit(msg),
+  onSwing: (id, action) => {
+    if (action === "swing") remotePlayers.swing(id);
+  },
   onStatus: (connected, wasConnected) => {
     if (!wasConnected) return;
     ui.toast("Conexión perdida, reconectando…", 3000);
@@ -450,13 +493,17 @@ function handleWelcome(msg) {
     world = getWorld(currentDim);
     ui.setSeed(world.seed);
     player = new Player(world);
-    player.onDamage = () => ui.flashDamage();
+    player.onDamage = () => {
+      ui.flashDamage();
+      sfx.hurt();
+    };
     player.onDeath = () => handleDeath();
     sky.setDimension(currentDim);
     preloadSpawn();
     ready = true;
+    refreshEquipment();
     setMode(mode, true);
-    ui.select(selectedSlot);
+    selectSlot(selectedSlot);
     ui.setStatus(mpStatus(msg.players.length + 1), true);
   } else {
     world = getWorld(currentDim);
@@ -480,7 +527,7 @@ function applyRemoteEdit(msg) {
 }
 
 function canInteract() {
-  return started && (input.locked || input.touch);
+  return started && !inventoryOpen && (input.locked || input.touch);
 }
 
 function requestFullscreen() {
@@ -517,9 +564,13 @@ function startSingleplayer() {
   world = getWorld(currentDim);
   ui.setSeed(world.seed);
   player = new Player(world);
-  player.onDamage = () => ui.flashDamage();
+  player.onDamage = () => {
+    ui.flashDamage();
+    sfx.hurt();
+  };
   player.onDeath = () => handleDeath();
   sky.setDimension(currentDim);
+  applySavedItems(saved);
   if (saved?.player) {
     player.pos.set(saved.player.x, saved.player.y, saved.player.z);
     player.yaw = saved.player.yaw ?? 0;
@@ -533,8 +584,25 @@ function startSingleplayer() {
   } else {
     preloadSpawn();
   }
+  refreshEquipment();
   setMode(mode, true);
-  ui.select(selectedSlot);
+  selectSlot(selectedSlot);
+}
+
+function applySavedItems(saved) {
+  const savedHotbar = Array.isArray(saved?.hotbar) ? saved.hotbar : null;
+  if (savedHotbar && savedHotbar.length === hotbar.length) {
+    savedHotbar.forEach((id, i) => {
+      hotbar[i] = Number.isInteger(id) && id >= 0 && id <= 65535 ? id : 0;
+    });
+  }
+  const savedArmor = Array.isArray(saved?.armor) ? saved.armor : null;
+  if (savedArmor && savedArmor.length === 4) {
+    savedArmor.forEach((id, i) => {
+      equipment[i] = Number.isInteger(id) && id >= 0 && id <= 65535 ? id : 0;
+    });
+  }
+  ui.buildHotbar();
 }
 
 function preloadAround(x, z) {
@@ -656,13 +724,15 @@ function raycastVoxel(origin, direction, maxDist) {
   let nx = 0;
   let ny = 0;
   let nz = 0;
+  let entered = 0;
   for (let i = 0; i < 128; i++) {
     const block = world.getBlock(x, y, z);
     if (block !== AIR && !isLiquid(block)) {
-      return { x, y, z, nx, ny, nz, block };
+      return { x, y, z, nx, ny, nz, block, dist: entered };
     }
     if (tMaxX < tMaxY && tMaxX < tMaxZ) {
       if (tMaxX > maxDist) break;
+      entered = tMaxX;
       x += stepX;
       tMaxX += tDeltaX;
       nx = -stepX;
@@ -670,6 +740,7 @@ function raycastVoxel(origin, direction, maxDist) {
       nz = 0;
     } else if (tMaxY < tMaxZ) {
       if (tMaxY > maxDist) break;
+      entered = tMaxY;
       y += stepY;
       tMaxY += tDeltaY;
       nx = 0;
@@ -677,6 +748,7 @@ function raycastVoxel(origin, direction, maxDist) {
       nz = 0;
     } else {
       if (tMaxZ > maxDist) break;
+      entered = tMaxZ;
       z += stepZ;
       tMaxZ += tDeltaZ;
       nx = 0;
@@ -691,6 +763,14 @@ function updateTarget() {
   const origin = player.eyePosition;
   const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
   const hit = raycastVoxel(origin, dir, REACH);
+  const mobHit = mobs.raycast(origin, dir, REACH);
+  if (mobHit && (!hit || mobHit.dist < hit.dist)) {
+    currentMob = mobHit.mob;
+    currentTarget = null;
+    outline.visible = false;
+    return;
+  }
+  currentMob = null;
   currentTarget = hit;
   if (hit) {
     outline.visible = true;
@@ -735,7 +815,20 @@ function ignitePortalNear(x, y, z) {
 
 function updateMining(dt) {
   if (breakCooldown > 0) breakCooldown -= dt;
-  if (!canInteract() || !currentTarget || !input.isMiningHeld()) {
+  if (attackCooldown > 0) attackCooldown -= dt;
+  if (!canInteract()) {
+    resetMining();
+    return;
+  }
+  if (currentMob && input.isMiningHeld()) {
+    if (attackCooldown <= 0) {
+      attackCooldown = 0.5;
+      attackMob(currentMob);
+    }
+    resetMining();
+    return;
+  }
+  if (!currentTarget || !input.isMiningHeld()) {
     resetMining();
     return;
   }
@@ -756,7 +849,7 @@ function updateMining(dt) {
     miningKey = key;
     miningProgress = 0;
   }
-  miningProgress += dt / breakTime(target.block);
+  miningProgress += (dt * mineSpeed(heldItem(), target.block)) / breakTime(target.block);
   miningSound -= dt;
   if (miningSound <= 0) {
     sfx.step(target.block);
@@ -780,9 +873,15 @@ function updatePlace(dt) {
 }
 
 function tryPlace() {
-  if (!canInteract() || !currentTarget) return;
+  if (!canInteract()) return;
+  const held = heldItem();
+  if (isArmor(held)) {
+    toggleArmorSlot(armorSlotOf(held));
+    return;
+  }
+  if (!currentTarget || !placeable(held)) return;
   if (placeCooldown > 0) return;
-  const id = HOTBAR[selectedSlot];
+  const id = held;
   const x = currentTarget.x + currentTarget.nx;
   const y = currentTarget.y + currentTarget.ny;
   const z = currentTarget.z + currentTarget.nz;
@@ -807,17 +906,138 @@ function pickBlock() {
   if (!canInteract() || !currentTarget) return;
   const block = currentTarget.block;
   if (block === AIR || block === WATER) return;
-  HOTBAR[selectedSlot] = block;
-  ui.buildHotbar();
-  ui.select(selectedSlot);
-  ui.toast(`Bloque: ${BLOCKS[block]?.name || "?"}`);
+  assignToSlot(block);
+}
+
+function heldItem() {
+  return hotbar[selectedSlot] || 0;
 }
 
 function selectSlot(i) {
   selectedSlot = i;
   ui.select(i);
-  hand.setBlock(HOTBAR[i]);
+  hand.setHeld(heldItem());
+  refreshSelfAvatar();
   sfx.click();
+}
+
+function assignToSlot(id) {
+  if (!id) return;
+  hotbar[selectedSlot] = id;
+  ui.buildHotbar();
+  ui.select(selectedSlot);
+  hand.setHeld(heldItem());
+  refreshSelfAvatar();
+  sfx.click();
+  ui.toast(`${itemName(id)} en la barra`, 1500);
+}
+
+function refreshEquipment() {
+  if (!player) return;
+  player.armorReduction = armorReduction(armorPoints(equipment));
+  ui.setArmor(equipment);
+  selfAvatar.setArmor(equipment);
+}
+
+function refreshSelfAvatar() {
+  selfAvatar.setHeld(heldItem());
+  selfAvatar.setArmor(equipment);
+}
+
+function equipArmor(id) {
+  const slot = armorSlotOf(id);
+  if (slot < 0 || !player) return false;
+  const prev = equipment[slot];
+  equipment[slot] = id;
+  hotbar[selectedSlot] = prev || 0;
+  refreshEquipment();
+  ui.buildHotbar();
+  ui.select(selectedSlot);
+  hand.setHeld(heldItem());
+  refreshSelfAvatar();
+  sfx.equip();
+  return true;
+}
+
+function toggleArmorSlot(slot) {
+  if (!started || !player) return;
+  const held = heldItem();
+  if (isArmor(held) && armorSlotOf(held) === slot) {
+    const name = itemName(held);
+    equipArmor(held);
+    ui.toast(`${name} equipado`, 1600);
+    return;
+  }
+  const current = equipment[slot];
+  if (current) {
+    equipment[slot] = 0;
+    hotbar[selectedSlot] = current;
+    refreshEquipment();
+    ui.buildHotbar();
+    ui.select(selectedSlot);
+    hand.setHeld(heldItem());
+    refreshSelfAvatar();
+    sfx.equip();
+    ui.toast(`${itemName(current)} a la barra`, 1600);
+    return;
+  }
+  ui.toast(isArmor(held) ? "Esa pieza no va en este hueco" : "Selecciona una pieza de armadura", 1800);
+}
+
+function requestLock() {
+  const result = renderer.domElement.requestPointerLock();
+  if (result && result.catch) result.catch(() => {});
+}
+
+function openInventory() {
+  if (!started || inventoryOpen) return;
+  inventoryOpen = true;
+  ui.showInventory();
+  sfx.click();
+  if (!input.touch) document.exitPointerLock();
+}
+
+function closeInventory() {
+  if (!inventoryOpen) return;
+  inventoryOpen = false;
+  ui.hideInventory();
+  if (!input.touch && started) requestLock();
+}
+
+function toggleInventory() {
+  if (inventoryOpen) closeInventory();
+  else openInventory();
+}
+
+function toggleCamera() {
+  if (!started) return;
+  cameraMode = cameraMode === 0 ? 1 : 0;
+  selfAvatar.group.visible = cameraMode === 1;
+  ui.toast(cameraMode === 1 ? "Tercera persona" : "Primera persona", 1400);
+}
+
+function attackMob(mob) {
+  const dir = new THREE.Vector3(mob.pos.x - player.pos.x, 0, mob.pos.z - player.pos.z);
+  if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
+  dir.normalize();
+  hand.triggerSwing();
+  selfAvatar.triggerSwing();
+  if (mpActive) net.sendSwing();
+  sfx.whoosh();
+  const killed = mobs.damage(mob, attackPower(heldItem()), dir);
+  if (!killed) {
+    spawnParticles(
+      mob.pos.x - 0.5,
+      mob.pos.y + mob.def.hitbox.cy - 0.5,
+      mob.pos.z - 0.5,
+      0,
+      5,
+      1.8,
+      [0.62, 0.12, 0.12]
+    );
+  } else {
+    ui.toast(`${mob.def.name} derrotado`, 1600);
+  }
 }
 
 function doSave(notify) {
@@ -838,6 +1058,8 @@ function doSave(notify) {
     selected: selectedSlot,
     mode,
     health: player.health,
+    hotbar: [...hotbar],
+    armor: [...equipment],
     player: {
       x: player.pos.x,
       y: player.pos.y,
@@ -878,7 +1100,9 @@ function doLoad() {
   player.health = saved.health ?? player.maxHealth;
   player.dead = false;
   player.world = world;
-  ui.select(selectedSlot);
+  applySavedItems(saved);
+  refreshEquipment();
+  selectSlot(selectedSlot);
   setMode(mode, true);
   if (saved.player) {
     player.pos.set(saved.player.x, saved.player.y, saved.player.z);
@@ -931,8 +1155,11 @@ function updatePhysics(dt) {
   const chunkReady = world.isChunkReadyAt(player.pos.x, player.pos.z);
   if (!chunkReady) return;
   const wasOnGround = player.onGround;
+  const fallSpeed = player.vel.y;
   player.update(dt, input);
   if (player.onGround && !wasOnGround) player.vel.y = 0;
+  if (wasOnGround && !player.onGround && player.vel.y > 2 && !player.inWater) sfx.jump();
+  if (!wasOnGround && player.onGround && fallSpeed < -8) sfx.land(Math.min(1, -fallSpeed / 18));
   if (player.onGround) {
     stepOdometer += Math.abs(player.vel.x) * dt + Math.abs(player.vel.z) * dt;
     if (stepOdometer > 2.1) {
@@ -1040,15 +1267,26 @@ function switchDimension(dim, tx, tz) {
 
 function updateCamera(dt) {
   const eye = player.eyePosition;
-  camera.position.copy(eye);
-  let bob = 0;
-  if (started && player.onGround && !player.flying) {
-    const speed = Math.hypot(player.vel.x, player.vel.z);
-    if (speed > 0.6) bob = Math.sin(player.walkedDistance * 2.6) * 0.045 * Math.min(1, speed / 6);
+  if (cameraMode === 1 && started) {
+    const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(player.pitch, player.yaw, 0, "YXZ"));
+    let dist = 3.7;
+    const back = forward.clone().negate();
+    const wall = raycastVoxel(eye, back, dist + 0.5);
+    if (wall && wall.dist < dist) dist = Math.max(0.7, wall.dist - 0.35);
+    const target = eye.clone().addScaledVector(forward, -dist).add(new THREE.Vector3(0, 0.3, 0));
+    camera.position.lerp(target, Math.min(1, dt * 14));
+    camera.rotation.set(player.pitch, player.yaw, 0);
+  } else {
+    camera.position.copy(eye);
+    let bob = 0;
+    if (started && player.onGround && !player.flying) {
+      const speed = Math.hypot(player.vel.x, player.vel.z);
+      if (speed > 0.6) bob = Math.sin(player.walkedDistance * 2.6) * 0.045 * Math.min(1, speed / 6);
+    }
+    camera.position.y += bob;
+    camera.rotation.y = player.yaw;
+    camera.rotation.x = player.pitch;
   }
-  camera.position.y += bob;
-  camera.rotation.y = player.yaw;
-  camera.rotation.x = player.pitch;
   const sprinting = input.isDown("ShiftLeft") || input.isDown("ShiftRight");
   const targetFov = started && sprinting && !player.flying ? 80 : 70;
   if (Math.abs(camera.fov - targetFov) > 0.05) {
@@ -1079,22 +1317,29 @@ function updateHud(dt) {
   const hour = (timeOfDay % 1) * 24;
   const hh = String(Math.floor(hour)).padStart(2, "0");
   const mm = String(Math.floor((hour % 1) * 60)).padStart(2, "0");
-  const targetName = currentTarget ? BLOCKS[currentTarget.block]?.name || "?" : "—";
+  const targetName = currentMob
+    ? currentMob.def.name
+    : currentTarget
+      ? BLOCKS[currentTarget.block]?.name || "?"
+      : "—";
   const modeName = mode === "survival" ? "Supervivencia" : "Creativo";
   const state = player.flying ? "Vuelo" : player.inWater ? "Nadando" : "A pie";
   const healthLine = mode === "survival" ? ` · Vida ${player.health}/${player.maxHealth}` : "";
+  const points = armorPoints(equipment);
+  const armorLine = points > 0 ? ` · Armadura ${points}` : "";
   const mpLine = mpActive ? ` · MP ${remotePlayers.count + 1}` : "";
+  const mobLine = mobs.count > 0 ? ` · Criaturas ${mobs.count}` : "";
   const biomeName =
     currentDim === "overworld"
       ? BIOME_NAMES[world.biomeAt(Math.floor(player.pos.x), Math.floor(player.pos.z))]
       : DIMENSION_NAMES[world.dimension];
   const dimLine = currentDim === "overworld" ? `${DIMENSION_NAMES[currentDim]} · ${biomeName}` : `${biomeName}`;
   ui.setDebug(
-    `Vexio Craft · ${fps} fps${mpLine}\n` +
+    `Vexio Craft · ${fps} fps${mpLine}${mobLine}\n` +
       `XYZ ${player.pos.x.toFixed(1)} ${player.pos.y.toFixed(1)} ${player.pos.z.toFixed(1)}\n` +
       `Chunks ${world.chunks.size} · Hora ${hh}:${mm} · ${modeName}\n` +
       `Mundo: ${dimLine}\n` +
-      `Bloque: ${targetName} · ${state}${healthLine}`
+      `Mano: ${itemName(heldItem())} · Apunta: ${targetName} · ${state}${healthLine}${armorLine}`
   );
   ui.setHealth(player.health, mode === "survival" && started);
 }
@@ -1160,11 +1405,37 @@ function frame() {
   updateHud(dt);
   remotePlayers.update(dt);
 
+  if (mobs.world !== world) mobs.setWorld(world);
+  if (started && !inventoryOpen) {
+    const night = timeOfDay >= 0.75 || timeOfDay < 0.23;
+    mobs.update(dt, player, { night, enabled: true, cap: mpActive ? 8 : 14 });
+  }
+
+  const horizSpeed = Math.hypot(player.vel.x, player.vel.z);
+  selfAvatar.group.position.set(player.pos.x, player.pos.y, player.pos.z);
+  selfAvatar.group.rotation.y = player.yaw;
+  selfAvatar.update(dt, {
+    speed: horizSpeed,
+    moving: started && !player.flying && horizSpeed > 0.8,
+    pitch: player.pitch,
+    inWater: player.inWater,
+  });
+  selfAvatar.setHeld(heldItem());
+
   if (mpActive && started) {
     stateTimer += dt;
     if (stateTimer >= 0.08) {
       stateTimer = 0;
-      net.sendState(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, currentDim);
+      net.sendState(
+        player.pos.x,
+        player.pos.y,
+        player.pos.z,
+        player.yaw,
+        player.pitch,
+        currentDim,
+        heldItem(),
+        equipment
+      );
     }
   }
 
@@ -1179,7 +1450,7 @@ function frame() {
   const moving = started && !player.flying && Math.hypot(player.vel.x, player.vel.z) > 0.8;
   hand.update(dt, moving, sky.brightness);
   renderer.render(scene, camera);
-  if (started) hand.render(renderer);
+  if (started && cameraMode === 0) hand.render(renderer);
 }
 
 window.addEventListener("resize", () => {
@@ -1204,6 +1475,17 @@ setTimeout(() => {
   startSingleplayer();
 }, MP_TIMEOUT);
 frame();
+
+if (new URLSearchParams(location.search).has("autostart")) {
+  const autostartTimer = setInterval(() => {
+    if (!ready || started) return;
+    clearInterval(autostartTimer);
+    started = true;
+    ui.hideMenu();
+    input.setTouchUiVisible(true);
+    sfx.resume();
+  }, 250);
+}
 
 if (typeof window !== "undefined") {
   window.__vexioCraft = {
@@ -1316,6 +1598,95 @@ if (typeof window !== "undefined") {
     },
     get time() {
       return timeOfDay;
+    },
+    get mobs() {
+      return mobs.count;
+    },
+    get mobList() {
+      return mobs.list.map((mob) => ({
+        id: mob.id,
+        type: mob.type,
+        hp: mob.hp,
+        x: mob.pos.x,
+        y: mob.pos.y,
+        z: mob.pos.z,
+      }));
+    },
+    get held() {
+      return heldItem();
+    },
+    get armor() {
+      return [...equipment];
+    },
+    get armorReduction() {
+      return player.armorReduction;
+    },
+    get cameraMode() {
+      return cameraMode;
+    },
+    get inventoryOpen() {
+      return inventoryOpen;
+    },
+    setHeldItem(id) {
+      assignToSlot(id);
+      return heldItem();
+    },
+    equip(id) {
+      if (!isArmor(id)) return false;
+      return equipArmor(id);
+    },
+    setCamera(mode) {
+      cameraMode = mode === 1 ? 1 : 0;
+      selfAvatar.group.visible = cameraMode === 1;
+      return cameraMode;
+    },
+    toggleInventory() {
+      toggleInventory();
+      return inventoryOpen;
+    },
+    spawnMob(type = "pig", dist = 4) {
+      const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+      const x = Math.floor(player.pos.x + forward.x * dist);
+      const z = Math.floor(player.pos.z + forward.z * dist);
+      preloadAround(x, z);
+      let y = Math.min(60, Math.floor(player.pos.y) + 6);
+      while (y > 2 && !isSolid(world.getBlock(x, y, z))) y--;
+      const mob = mobs.spawn(type, x + 0.5, z + 0.5, y + 1.02);
+      return mob.id;
+    },
+    attack() {
+      const origin = player.eyePosition;
+      const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
+      const hit = mobs.raycast(origin, dir, REACH);
+      if (!hit) return false;
+      attackMob(hit.mob);
+      return true;
+    },
+    forceSpawns(n = 1, night = true) {
+      let added = 0;
+      for (let i = 0; i < n; i++) {
+        const before = mobs.count;
+        mobs.spawnTimer = 0;
+        mobs.spawnTick(1, player, night, 99);
+        if (mobs.count > before) added++;
+      }
+      return { added, count: mobs.count };
+    },
+    get pose() {
+      const parts = selfAvatar.parts;
+      return {
+        legL: Number(parts.legL.rotation.x.toFixed(3)),
+        legR: Number(parts.legR.rotation.x.toFixed(3)),
+        armL: Number(parts.armL.rotation.x.toFixed(3)),
+        armR: Number(parts.armR.rotation.x.toFixed(3)),
+        head: Number(parts.head.rotation.x.toFixed(3)),
+        swing: Number(selfAvatar.swingTime.toFixed(3)),
+      };
+    },
+    moveAnalog(x = 0, y = 0) {
+      input.analogX = x;
+      input.analogY = y;
+      return true;
     },
   };
 }

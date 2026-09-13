@@ -124,8 +124,6 @@ export const BLOCKS = {
   [SPAWNER]: { name: "Generador", solid: true, opaque: true, sound: "stone", hardness: 1.5, tiles: { all: "spawner" } },
 };
 
-export const HOTBAR = [GRASS, DIRT, STONE, COBBLE, SAND, LOG, PLANKS, LEAVES, GLASS];
-
 const GRASS_TINT = {
   forest: "grass_top_forest",
   birch: "grass_top_forest",
