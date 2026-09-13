@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { Avatar } from "./avatar.js";
-import { GRASS, GRASS_SNOWY, PODZOL, DIRT, SNOW, SAND, RED_SAND, isSolid, isLiquid } from "./blocks.js";
+import { WOOL, GRASS, GRASS_SNOWY, PODZOL, DIRT, SNOW, SAND, RED_SAND, isSolid, isLiquid } from "./blocks.js";
+import { PORKCHOP, BEEF, MUTTON, ROTTEN_FLESH, LEATHER } from "./items.js";
 import { SEA_LEVEL, GRAVITY } from "./config.js";
 
 const TYPES = {
@@ -14,10 +15,10 @@ const TYPES = {
     sound: "pig",
     body: 0xe58f9f,
     dark: 0xc97787,
-    wool: 0,
     collide: { half: 0.4, height: 0.95 },
     hitbox: { hx: 0.5, hy: 0.5, hz: 0.7, cy: 0.5 },
     poof: 0.9,
+    drops: [[PORKCHOP, 1, 3]],
   },
   sheep: {
     name: "Oveja",
@@ -29,10 +30,32 @@ const TYPES = {
     sound: "sheep",
     body: 0xe8e4dc,
     dark: 0xcac2b6,
-    wool: 0,
     collide: { half: 0.42, height: 0.95 },
     hitbox: { hx: 0.52, hy: 0.5, hz: 0.72, cy: 0.5 },
     poof: 0.9,
+    drops: [
+      [MUTTON, 1, 2],
+      [WOOL, 1, 1],
+    ],
+  },
+  cow: {
+    name: "Vaca",
+    hp: 10,
+    speed: 1.15,
+    flee: 3.2,
+    damage: 0,
+    hostile: false,
+    sound: "cow",
+    body: 0x6f4a32,
+    dark: 0x50341f,
+    headColor: 0xe8e4dc,
+    collide: { half: 0.44, height: 1.0 },
+    hitbox: { hx: 0.54, hy: 0.52, hz: 0.75, cy: 0.52 },
+    poof: 0.8,
+    drops: [
+      [BEEF, 1, 3],
+      [LEATHER, 0, 2],
+    ],
   },
   zombie: {
     name: "Zombi",
@@ -45,10 +68,10 @@ const TYPES = {
     sound: "zombie",
     body: 0x4f8a4a,
     dark: 0x3c6b38,
-    wool: 0,
     collide: { half: 0.36, height: 1.85 },
     hitbox: { hx: 0.36, hy: 0.95, hz: 0.36, cy: 0.95 },
     poof: 0.3,
+    drops: [[ROTTEN_FLESH, 0, 2]],
   },
 };
 
@@ -66,7 +89,8 @@ function buildQuadruped(def) {
   const mats = [];
   const bodyMat = new THREE.MeshLambertMaterial({ color: def.body });
   const darkMat = new THREE.MeshLambertMaterial({ color: def.dark });
-  mats.push(bodyMat, darkMat);
+  const headMat = def.headColor ? new THREE.MeshLambertMaterial({ color: def.headColor }) : bodyMat;
+  mats.push(bodyMat, darkMat, headMat);
 
   const body = box(0.62, 0.48, 0.95, bodyMat);
   body.position.set(0, 0.66, 0);
@@ -74,7 +98,7 @@ function buildQuadruped(def) {
 
   const head = new THREE.Group();
   head.position.set(0, 0.8, -0.5);
-  const headMesh = box(0.42, 0.4, 0.42, bodyMat);
+  const headMesh = box(0.42, 0.4, 0.42, headMat);
   headMesh.position.z = -0.16;
   head.add(headMesh);
   const snout = box(0.22, 0.18, 0.14, darkMat);
@@ -150,6 +174,7 @@ export class Mobs {
     this.sfx = handlers.sfx || null;
     this.onAttack = handlers.onAttack || null;
     this.onPoof = handlers.onPoof || null;
+    this.onDrop = handlers.onDrop || null;
     this.world = null;
     this.list = [];
     this.ids = 0;
@@ -269,7 +294,8 @@ export class Mobs {
       const x = Math.floor(player.pos.x + Math.cos(angle) * dist);
       const z = Math.floor(player.pos.z + Math.sin(angle) * dist);
       const zombieBias = night ? 0.62 : 0.1;
-      const type = Math.random() < zombieBias ? "zombie" : Math.random() < 0.5 ? "pig" : "sheep";
+      const passive = ["pig", "sheep", "cow"][(Math.random() * 3) | 0];
+      const type = Math.random() < zombieBias ? "zombie" : passive;
       const def = TYPES[type];
       const maxY = Math.min(60, Math.floor(player.pos.y) + 10);
       let y = maxY;
@@ -496,6 +522,10 @@ export class Mobs {
       mob.deadTimer = 0;
       this.sfx?.mobDeath?.(mob.def.sound);
       this.onPoof?.(mob.pos, [0.7, 0.25, 0.25], 12, 2.6);
+      for (const [itemId, min, max] of mob.def.drops || []) {
+        const count = min + Math.floor(Math.random() * (max - min + 1));
+        if (count > 0) this.onDrop?.(itemId, count);
+      }
       return true;
     }
     this.sfx?.mobHurt?.(mob.def.sound);

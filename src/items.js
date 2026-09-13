@@ -1,4 +1,28 @@
-import { BLOCKS, GRASS, STONE, LOG, PLANKS, GLASS, LEAVES, isPlant } from "./blocks.js";
+import {
+  BLOCKS,
+  GRASS,
+  GRASS_SNOWY,
+  PODZOL,
+  DIRT,
+  STONE,
+  COBBLE,
+  LOG,
+  SPRUCE_LOG,
+  BIRCH_LOG,
+  JUNGLE_LOG,
+  ACACIA_LOG,
+  PLANKS,
+  SPRUCE_PLANKS,
+  BIRCH_PLANKS,
+  JUNGLE_PLANKS,
+  ACACIA_PLANKS,
+  GLASS,
+  LEAVES,
+  IRON_ORE,
+  DIAMOND_ORE,
+  isPlant,
+  breakTime,
+} from "./blocks.js";
 
 export const TIERS = [
   { key: "wood", label: "Madera", speed: 2, damage: 2, sword: 4 },
@@ -62,6 +86,38 @@ export const STONE_SWORD = 1001;
 export const STONE_PICKAXE = 1011;
 export const STONE_AXE = 1021;
 export const STONE_SHOVEL = 1031;
+
+export const PORKCHOP = 1200;
+export const BEEF = 1201;
+export const MUTTON = 1202;
+export const ROTTEN_FLESH = 1203;
+
+export const STICK = 1300;
+export const IRON_INGOT = 1301;
+export const DIAMOND = 1302;
+export const LEATHER = 1303;
+
+const FOODS = {
+  [PORKCHOP]: { name: "Chuleta de cerdo", icon: "porkchop", food: 8 },
+  [BEEF]: { name: "Carne de res", icon: "beef", food: 8 },
+  [MUTTON]: { name: "Carne de oveja", icon: "mutton", food: 6 },
+  [ROTTEN_FLESH]: { name: "Carne podrida", icon: "rotten_flesh", food: 4 },
+};
+
+const MATERIALS = {
+  [STICK]: { name: "Palo", icon: "stick" },
+  [IRON_INGOT]: { name: "Lingote de hierro", icon: "iron_ingot" },
+  [DIAMOND]: { name: "Diamante", icon: "diamond" },
+  [LEATHER]: { name: "Cuero", icon: "leather" },
+};
+
+for (const [id, def] of Object.entries(FOODS)) {
+  ITEMS[id] = { id: Number(id), kind: "food", ...def };
+}
+
+for (const [id, def] of Object.entries(MATERIALS)) {
+  ITEMS[id] = { id: Number(id), kind: "material", ...def };
+}
 
 export const DEFAULT_HOTBAR = [STONE_SWORD, STONE_PICKAXE, STONE_AXE, STONE_SHOVEL, GRASS, STONE, LOG, PLANKS, GLASS];
 
@@ -139,4 +195,130 @@ export function armorReduction(points) {
 
 export function placeable(id) {
   return !!id && !isItem(id) && !!BLOCKS[id];
+}
+
+export function isFood(id) {
+  return ITEMS[id]?.kind === "food";
+}
+
+export function foodValue(id) {
+  return ITEMS[id]?.food || 0;
+}
+
+export function stackLimit(id) {
+  const def = ITEMS[id];
+  if (def && (def.kind === "tool" || def.kind === "armor")) return 1;
+  return 64;
+}
+
+export function pickaxeTier(itemId) {
+  const def = ITEMS[itemId];
+  if (!def || def.tool !== "pickaxe") return -1;
+  return def.tier;
+}
+
+export function canHarvest(blockId, itemId) {
+  const required = BLOCKS[blockId]?.pickaxe;
+  if (required === undefined) return true;
+  return pickaxeTier(itemId) >= required;
+}
+
+export function breakTimeWithTool(blockId, itemId) {
+  let time = breakTime(blockId) / mineSpeed(itemId, blockId);
+  const required = BLOCKS[blockId]?.pickaxe;
+  if (required !== undefined && pickaxeTier(itemId) < required) time *= 3;
+  return time;
+}
+
+export function rollBlockDrop(blockId) {
+  if (!blockId || !BLOCKS[blockId]) return null;
+  if (blockId === GRASS || blockId === GRASS_SNOWY || blockId === PODZOL) return { id: DIRT, count: 1 };
+  if (blockId === STONE) return { id: COBBLE, count: 1 };
+  if (blockId === IRON_ORE) return { id: IRON_INGOT, count: 1 };
+  if (blockId === DIAMOND_ORE) return { id: DIAMOND, count: 1 };
+  if (blockId === GLASS) return null;
+  if (blockId === LEAVES) return Math.random() < 0.33 ? { id: LEAVES, count: 1 } : null;
+  if (BLOCKS[blockId].unbreakable || BLOCKS[blockId].portal) return null;
+  return { id: blockId, count: 1 };
+}
+
+const ANY_PLANKS = [PLANKS, SPRUCE_PLANKS, BIRCH_PLANKS, JUNGLE_PLANKS, ACACIA_PLANKS];
+const LOG_TO_PLANKS = [
+  [LOG, PLANKS],
+  [SPRUCE_LOG, SPRUCE_PLANKS],
+  [BIRCH_LOG, BIRCH_PLANKS],
+  [JUNGLE_LOG, JUNGLE_PLANKS],
+  [ACACIA_LOG, ACACIA_PLANKS],
+];
+
+export const RECIPES = [];
+
+function addRecipe(group, outId, outCount, ingredients) {
+  RECIPES.push({ group, outId, outCount, ingredients });
+}
+
+for (const [log, planks] of LOG_TO_PLANKS) {
+  addRecipe("Materiales", planks, 4, [{ ids: [log], count: 1 }]);
+}
+addRecipe("Materiales", STICK, 4, [{ ids: ANY_PLANKS, count: 2 }]);
+
+const TOOL_COSTS = {
+  sword: { material: 2, stick: 1 },
+  pickaxe: { material: 3, stick: 2 },
+  axe: { material: 3, stick: 2 },
+  shovel: { material: 1, stick: 2 },
+};
+
+const TOOL_MATERIALS = [
+  { ids: ANY_PLANKS, tier: 0 },
+  { ids: [COBBLE], tier: 1 },
+  { ids: [IRON_INGOT], tier: 2 },
+  { ids: [DIAMOND], tier: 3 },
+];
+
+TOOL_KINDS.forEach((kind, ki) => {
+  const cost = TOOL_COSTS[kind.key];
+  for (const mat of TOOL_MATERIALS) {
+    const outId = 1000 + ki * 10 + mat.tier;
+    addRecipe("Herramientas", outId, 1, [
+      { ids: mat.ids, count: cost.material },
+      { ids: [STICK], count: cost.stick },
+    ]);
+  }
+});
+
+const ARMOR_COSTS = [5, 8, 7, 4];
+const ARMOR_CRAFTS = [
+  { ids: [LEATHER], mat: 0 },
+  { ids: [IRON_INGOT], mat: 1 },
+  { ids: [DIAMOND], mat: 2 },
+];
+
+ARMOR_CRAFTS.forEach(({ ids, mat }) => {
+  ARMOR_SLOTS.forEach((slot, si) => {
+    addRecipe("Armadura", 1100 + mat * 10 + si, 1, [{ ids, count: ARMOR_COSTS[si] }]);
+  });
+});
+
+export function recipeAvailable(recipe, inventory) {
+  for (const ing of recipe.ingredients) {
+    let available = 0;
+    for (const id of ing.ids) available += inventory.countOf(id);
+    if (available < ing.count) return false;
+  }
+  return true;
+}
+
+export function consumeIngredients(recipe, inventory) {
+  for (const ing of recipe.ingredients) {
+    let need = ing.count;
+    for (const id of ing.ids) {
+      if (need <= 0) break;
+      const have = inventory.countOf(id);
+      if (have <= 0) continue;
+      const use = Math.min(have, need);
+      inventory.remove(id, use);
+      need -= use;
+    }
+  }
 }

@@ -13,7 +13,7 @@ import {
   FALL_SAFE,
   REGEN_DELAY,
 } from "./config.js";
-import { isSolid, isLiquid } from "./blocks.js";
+import { isSolid, isLiquid, isWater } from "./blocks.js";
 
 const EPS = 1e-4;
 
@@ -34,6 +34,13 @@ export class Player {
     this.maxHealth = MAX_HEALTH;
     this.health = MAX_HEALTH;
     this.armorReduction = 0;
+    this.maxHunger = 20;
+    this.hunger = 20;
+    this.exhaustion = 0;
+    this.maxAir = 10;
+    this.air = 10;
+    this.starveTimer = 0;
+    this.drownTimer = 0;
     this.dead = false;
     this.time = 0;
     this.lastDamage = -99;
@@ -95,23 +102,50 @@ export class Player {
     this.onGround = false;
     this.dead = false;
     this.health = this.maxHealth;
+    this.hunger = this.maxHunger;
+    this.exhaustion = 0;
+    this.air = this.maxAir;
     this.lastDamage = this.time;
     this.fallStart = null;
     this.regenTimer = 0;
   }
 
+  eat(value) {
+    this.hunger = Math.min(this.maxHunger, this.hunger + value);
+    this.exhaustion = Math.max(0, this.exhaustion - 2);
+    this.starveTimer = 0;
+  }
+
+  spendExhaustion(amount) {
+    this.exhaustion += amount;
+  }
+
   update(dt, input) {
     this.time += dt;
 
-    if (this.mode === "survival" && !this.dead && this.health < this.maxHealth) {
-      if (this.time - this.lastDamage > REGEN_DELAY) {
-        this.regenTimer += dt;
-        if (this.regenTimer >= 2) {
+    if (this.mode === "survival" && !this.dead) {
+      if (this.hunger >= 18 && this.health < this.maxHealth) {
+        if (this.time - this.lastDamage > REGEN_DELAY) {
+          this.regenTimer += dt;
+          if (this.regenTimer >= 3.5) {
+            this.regenTimer = 0;
+            this.health = Math.min(this.maxHealth, this.health + 1);
+            this.exhaustion += 2;
+          }
+        } else {
           this.regenTimer = 0;
-          this.health = Math.min(this.maxHealth, this.health + 1);
         }
       } else {
         this.regenTimer = 0;
+      }
+      if (this.hunger <= 0) {
+        this.starveTimer += dt;
+        if (this.starveTimer >= 4) {
+          this.starveTimer = 0;
+          this.damage(1);
+        }
+      } else {
+        this.starveTimer = 0;
       }
     }
 
@@ -154,6 +188,7 @@ export class Player {
         if (jump && this.onGround) {
           this.vel.y = JUMP_SPEED;
           this.onGround = false;
+          this.exhaustion += 0.2;
         }
       }
       this.vel.x = wish.x * speed;
@@ -214,6 +249,34 @@ export class Player {
         this.fallStart = null;
       }
       if (this.onGround) this.fallStart = null;
+    }
+
+    if (this.mode === "survival" && !this.dead) {
+      const moving = this.onGround && !this.flying && (Math.abs(this.vel.x) > 0.5 || Math.abs(this.vel.z) > 0.5);
+      if (moving) this.exhaustion += dt * (sprinting ? 0.1 : 0.025);
+      if (this.exhaustion >= 4) {
+        this.exhaustion -= 4;
+        this.hunger = Math.max(0, this.hunger - 1);
+      }
+    }
+
+    const eyeBlock = this.world.getBlock(
+      Math.floor(this.pos.x),
+      Math.floor(this.pos.y + this.eye),
+      Math.floor(this.pos.z)
+    );
+    if (isWater(eyeBlock)) {
+      this.air = Math.max(0, this.air - dt);
+      if (this.air <= 0) {
+        this.drownTimer += dt;
+        if (this.drownTimer >= 1.2) {
+          this.drownTimer = 0;
+          this.damage(1.5);
+        }
+      }
+    } else {
+      this.air = Math.min(this.maxAir, this.air + dt * 4);
+      this.drownTimer = 0;
     }
 
     const dx = this.pos.x - startX;

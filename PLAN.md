@@ -23,13 +23,22 @@ Juego voxel estilo Minecraft en el navegador (Three.js + Vite), desplegado en ht
   - Criaturas locales: cerdos y ovejas pasivos que huyen al ser golpeados, y zombis hostiles que aparecen de noche y se queman al amanecer; IA con deambular, persecución, ataque, vida, retroceso y animación.
   - Multijugador: se sincronizan objeto en mano, armadura equipada y animación de golpe.
 
-## Siguientes ideas (etapa 8)
+- [x] **8. Supervivencia completa**:
+  - Inventario real de 36 huecos (9 barra rápida + 27 mochila) con cantidades: mover y apilar con clic, repartir con clic derecho, cursor de objeto y contadores en la hotbar.
+  - Minar suelta recursos al inventario y colocar los consume; sin pico la piedra no da drop y las menas exigen pico de piedra (hierro) o de hierro (diamante), con minado más lento si falta la herramienta correcta.
+  - Crafteo por recetas (34): tablas de cada madera, palos, 16 herramientas y 12 piezas de armadura, con ingredientes disponibles resaltados.
+  - Menas de hierro y diamante repartidas por el subsuelo y lana de oveja como bloque colocable.
+  - Hambre con barra de 10 muslos: agotamiento al caminar/correr/saltar/regenerar, regeneración de vida solo con hambre alta e inanición a 0; comer con clic derecho (chuleta, carne de res, de oveja y podrida).
+  - Criaturas: nueva vaca (carne y cuero), drops al morir para cerdo/oveja/zombi y ahogamiento con burbujas de oxígeno.
+  - Guardado de inventario, hambre y armadura por partida.
 
+## Siguientes ideas (etapa 9)
+
+- [ ] Horno y cocinar carne (más alimento).
+- [ ] Durabilidad de herramientas y armadura.
 - [ ] Chat de texto entre jugadores.
 - [ ] Sincronizar hora del día y clima desde el servidor.
-- [ ] Inventario persistente por jugador en el servidor.
-- [ ] Criaturas sincronizadas por el servidor y más tipos.
-- [ ] Crafteo y drops de criaturas.
+- [ ] Inventario persistente por jugador en el servidor y criaturas sincronizadas.
 - [ ] Panel de administración (expulsar, banear, cambiar semilla en vivo).
 
 ## Desarrollo local
@@ -44,7 +53,7 @@ Producción: `npm run build` + `npm start` (un solo proceso sirve el cliente y e
 
 ## Arquitectura
 
-- `src/` — cliente (Vite). `src/net.js` conexión WS, `src/remotePlayers.js` avatares remotos, `src/avatar.js` avatar articulado compartido, `src/items.js` herramientas/armadura, `src/mobs.js` criaturas.
+- `src/` — cliente (Vite). `src/net.js` conexión WS, `src/remotePlayers.js` avatares remotos, `src/avatar.js` avatar articulado compartido, `src/items.js` objetos/recetas, `src/inventory.js` inventario con cantidades, `src/mobs.js` criaturas.
 - `server/index.js` — sirve `dist/` y gestiona el mundo compartido por WS.
 - Persistencia: `DATA_DIR/world.json` (por defecto `/data`, volumen en Dokploy).
 - Deploy: Dokploy construye el `Dockerfile` y publica en `vexio-craft.vexio.dev` (auto-deploy al hacer push a `main`).

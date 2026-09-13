@@ -60,19 +60,23 @@ export const END_PORTAL_FRAME = 53;
 export const END_PORTAL = 54;
 export const SPAWNER = 55;
 
+export const IRON_ORE = 56;
+export const DIAMOND_ORE = 57;
+export const WOOL = 58;
+
 export const BLOCKS = {
   [AIR]: { name: "Aire", solid: false, opaque: false },
   [GRASS]: { name: "Césped", solid: true, opaque: true, sound: "grass", hardness: 0.35, tiles: { top: "grass_top", bottom: "dirt", side: "grass_side" } },
   [DIRT]: { name: "Tierra", solid: true, opaque: true, sound: "dirt", hardness: 0.35, tiles: { all: "dirt" } },
-  [STONE]: { name: "Piedra", solid: true, opaque: true, sound: "stone", hardness: 1.15, tiles: { all: "stone" } },
-  [COBBLE]: { name: "Adoquín", solid: true, opaque: true, sound: "stone", hardness: 1.1, tiles: { all: "cobble" } },
+  [STONE]: { name: "Piedra", solid: true, opaque: true, sound: "stone", hardness: 1.15, pickaxe: 0, tiles: { all: "stone" } },
+  [COBBLE]: { name: "Adoquín", solid: true, opaque: true, sound: "stone", hardness: 1.1, pickaxe: 0, tiles: { all: "cobble" } },
   [SAND]: { name: "Arena", solid: true, opaque: true, sound: "sand", hardness: 0.3, tiles: { all: "sand" } },
   [WATER]: { name: "Agua", solid: false, opaque: false, liquid: true, water: true, sound: "water", hardness: Infinity, tiles: { all: "water" } },
   [LOG]: { name: "Roble", solid: true, opaque: true, sound: "wood", hardness: 0.7, tiles: { top: "log_top", bottom: "log_top", side: "log_side" } },
   [LEAVES]: { name: "Hojas de roble", solid: true, opaque: false, sound: "grass", hardness: 0.18, tiles: { all: "leaves" } },
   [PLANKS]: { name: "Tablas de roble", solid: true, opaque: true, sound: "wood", hardness: 0.65, tiles: { all: "planks" } },
   [GLASS]: { name: "Cristal", solid: true, opaque: false, sound: "glass", hardness: 0.22, tiles: { all: "glass" } },
-  [BRICK]: { name: "Ladrillo", solid: true, opaque: true, sound: "stone", hardness: 1.25, tiles: { all: "brick" } },
+  [BRICK]: { name: "Ladrillo", solid: true, opaque: true, sound: "stone", hardness: 1.25, pickaxe: 0, tiles: { all: "brick" } },
   [SNOW]: { name: "Nieve", solid: true, opaque: true, sound: "snow", hardness: 0.25, tiles: { all: "snow" } },
   [BEDROCK]: { name: "Roca madre", solid: true, opaque: true, unbreakable: true, sound: "stone", hardness: Infinity, tiles: { all: "bedrock" } },
 
@@ -98,30 +102,34 @@ export const BLOCKS = {
   [PODZOL]: { name: "Podzol", solid: true, opaque: true, sound: "dirt", hardness: 0.35, tiles: { top: "podzol_top", bottom: "dirt", side: "podzol_side" } },
   [COARSE_DIRT]: { name: "Tierra estéril", solid: true, opaque: true, sound: "dirt", hardness: 0.35, tiles: { all: "coarse_dirt" } },
   [RED_SAND]: { name: "Arena roja", solid: true, opaque: true, sound: "sand", hardness: 0.3, tiles: { all: "red_sand" } },
-  [SANDSTONE]: { name: "Arenisca", solid: true, opaque: true, sound: "stone", hardness: 0.9, tiles: { top: "sandstone_top", bottom: "sandstone_top", side: "sandstone_side" } },
-  [RED_SANDSTONE]: { name: "Arenisca roja", solid: true, opaque: true, sound: "stone", hardness: 0.9, tiles: { top: "red_sandstone_top", bottom: "red_sandstone_top", side: "red_sandstone_side" } },
-  [TERRACOTTA]: { name: "Terracota", solid: true, opaque: true, sound: "stone", hardness: 0.7, tiles: { all: "terracotta" } },
-  [WHITE_TERRACOTTA]: { name: "Terracota blanca", solid: true, opaque: true, sound: "stone", hardness: 0.7, tiles: { all: "white_terracotta" } },
-  [ORANGE_TERRACOTTA]: { name: "Terracota naranja", solid: true, opaque: true, sound: "stone", hardness: 0.7, tiles: { all: "orange_terracotta" } },
-  [RED_TERRACOTTA]: { name: "Terracota roja", solid: true, opaque: true, sound: "stone", hardness: 0.7, tiles: { all: "red_terracotta" } },
-  [MOSSY_COBBLE]: { name: "Adoquín musgoso", solid: true, opaque: true, sound: "stone", hardness: 1.1, tiles: { all: "mossy_cobble" } },
-  [STONE_BRICKS]: { name: "Ladrillos de piedra", solid: true, opaque: true, sound: "stone", hardness: 1.2, tiles: { all: "stone_bricks" } },
+  [SANDSTONE]: { name: "Arenisca", solid: true, opaque: true, sound: "stone", hardness: 0.9, pickaxe: 0, tiles: { top: "sandstone_top", bottom: "sandstone_top", side: "sandstone_side" } },
+  [RED_SANDSTONE]: { name: "Arenisca roja", solid: true, opaque: true, sound: "stone", hardness: 0.9, pickaxe: 0, tiles: { top: "red_sandstone_top", bottom: "red_sandstone_top", side: "red_sandstone_side" } },
+  [TERRACOTTA]: { name: "Terracota", solid: true, opaque: true, sound: "stone", hardness: 0.7, pickaxe: 0, tiles: { all: "terracotta" } },
+  [WHITE_TERRACOTTA]: { name: "Terracota blanca", solid: true, opaque: true, sound: "stone", hardness: 0.7, pickaxe: 0, tiles: { all: "white_terracotta" } },
+  [ORANGE_TERRACOTTA]: { name: "Terracota naranja", solid: true, opaque: true, sound: "stone", hardness: 0.7, pickaxe: 0, tiles: { all: "orange_terracotta" } },
+  [RED_TERRACOTTA]: { name: "Terracota roja", solid: true, opaque: true, sound: "stone", hardness: 0.7, pickaxe: 0, tiles: { all: "red_terracotta" } },
+  [MOSSY_COBBLE]: { name: "Adoquín musgoso", solid: true, opaque: true, sound: "stone", hardness: 1.1, pickaxe: 0, tiles: { all: "mossy_cobble" } },
+  [STONE_BRICKS]: { name: "Ladrillos de piedra", solid: true, opaque: true, sound: "stone", hardness: 1.2, pickaxe: 0, tiles: { all: "stone_bricks" } },
   [GRASS_SNOWY]: { name: "Césped nevado", solid: true, opaque: true, sound: "grass", hardness: 0.35, tiles: { top: "snow", bottom: "dirt", side: "snow_side" } },
 
-  [NETHERRACK]: { name: "Infrapiedra", solid: true, opaque: true, sound: "stone", hardness: 0.5, tiles: { all: "netherrack" } },
+  [NETHERRACK]: { name: "Infrapiedra", solid: true, opaque: true, sound: "stone", hardness: 0.5, pickaxe: 0, tiles: { all: "netherrack" } },
   [SOUL_SAND]: { name: "Arena de almas", solid: true, opaque: true, sound: "sand", hardness: 0.5, tiles: { all: "soul_sand" } },
   [GLOWSTONE]: { name: "Piedra luminosa", solid: true, opaque: true, sound: "glass", hardness: 0.4, tiles: { all: "glowstone" } },
-  [NETHER_BRICKS]: { name: "Ladrillos del Nether", solid: true, opaque: true, sound: "stone", hardness: 1.3, tiles: { all: "nether_bricks" } },
+  [NETHER_BRICKS]: { name: "Ladrillos del Nether", solid: true, opaque: true, sound: "stone", hardness: 1.3, pickaxe: 0, tiles: { all: "nether_bricks" } },
   [LAVA]: { name: "Lava", solid: false, opaque: false, liquid: true, lava: true, sound: "water", hardness: Infinity, tiles: { all: "lava" } },
-  [OBSIDIAN]: { name: "Obsidiana", solid: true, opaque: true, sound: "stone", hardness: 3.5, tiles: { all: "obsidian" } },
+  [OBSIDIAN]: { name: "Obsidiana", solid: true, opaque: true, sound: "stone", hardness: 3.5, pickaxe: 3, tiles: { all: "obsidian" } },
   [NETHER_PORTAL]: { name: "Portal", solid: false, opaque: false, portal: true, sound: "glass", hardness: Infinity, tiles: { all: "nether_portal" } },
-  [QUARTZ_ORE]: { name: "Mena de cuarzo", solid: true, opaque: true, sound: "stone", hardness: 1.1, tiles: { all: "quartz_ore" } },
+  [QUARTZ_ORE]: { name: "Mena de cuarzo", solid: true, opaque: true, sound: "stone", hardness: 1.1, pickaxe: 0, tiles: { all: "quartz_ore" } },
 
-  [END_STONE]: { name: "Piedra del End", solid: true, opaque: true, sound: "stone", hardness: 1.1, tiles: { all: "end_stone" } },
-  [PURPUR]: { name: "Púrpur", solid: true, opaque: true, sound: "stone", hardness: 1.0, tiles: { all: "purpur" } },
+  [END_STONE]: { name: "Piedra del End", solid: true, opaque: true, sound: "stone", hardness: 1.1, pickaxe: 0, tiles: { all: "end_stone" } },
+  [PURPUR]: { name: "Púrpur", solid: true, opaque: true, sound: "stone", hardness: 1.0, pickaxe: 0, tiles: { all: "purpur" } },
   [END_PORTAL_FRAME]: { name: "Marco del End", solid: true, opaque: true, sound: "stone", hardness: Infinity, unbreakable: true, tiles: { top: "end_portal_frame_top", bottom: "end_stone", side: "end_portal_frame_side" } },
   [END_PORTAL]: { name: "Portal del End", solid: false, opaque: false, portal: true, endPortal: true, sound: "glass", hardness: Infinity, tiles: { all: "end_portal" } },
-  [SPAWNER]: { name: "Generador", solid: true, opaque: true, sound: "stone", hardness: 1.5, tiles: { all: "spawner" } },
+  [SPAWNER]: { name: "Generador", solid: true, opaque: true, sound: "stone", hardness: 1.5, pickaxe: 0, tiles: { all: "spawner" } },
+
+  [IRON_ORE]: { name: "Mena de hierro", solid: true, opaque: true, sound: "stone", hardness: 1.6, pickaxe: 1, tiles: { all: "iron_ore" } },
+  [DIAMOND_ORE]: { name: "Mena de diamante", solid: true, opaque: true, sound: "stone", hardness: 2.2, pickaxe: 2, tiles: { all: "diamond_ore" } },
+  [WOOL]: { name: "Lana", solid: true, opaque: true, sound: "snow", hardness: 0.3, tiles: { all: "wool" } },
 };
 
 const GRASS_TINT = {

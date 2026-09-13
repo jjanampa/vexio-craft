@@ -4,7 +4,7 @@ const TILE = 16;
 const PAD = 4;
 const CELL = TILE + PAD * 2;
 const COLS = 8;
-const ROWS = 14;
+const ROWS = 15;
 
 function fill(ctx, s, color) {
   ctx.fillStyle = color;
@@ -943,6 +943,128 @@ for (const [key, mat] of Object.entries(ARMOR_MATS)) {
   PAINTERS[`legs_${key}`] = legsPainter(mat);
   PAINTERS[`boots_${key}`] = bootsPainter(mat);
 }
+
+function orePainter(colors) {
+  return (ctx, s, rng) => {
+    PAINTERS.stone(ctx, s, rng);
+    for (let i = 0; i < 5; i++) {
+      const x = 1 + ((rng() * (s - 4)) | 0);
+      const y = 1 + ((rng() * (s - 4)) | 0);
+      const color = colors[(rng() * colors.length) | 0];
+      rect(ctx, x, y, 2, 2, color);
+      px_(ctx, x, y, "#ffffff");
+      px_(ctx, x + 2, y + 2, "rgba(0,0,0,0.35)");
+    }
+  };
+}
+
+Object.assign(PAINTERS, {
+  iron_ore: orePainter(["#c79b7c", "#d8af93", "#b98a68"]),
+  diamond_ore: orePainter(["#2a9a8c", "#4fd8c8", "#7ce8dc"]),
+
+  wool(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#ececec", "#e4e4e4", "#f5f5f5", "#dcdcdc"], "#d0d0d0", "#ffffff", 0.1, 0.12);
+    for (let i = 0; i < 12; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 2, 1, "rgba(190,190,190,0.45)");
+    }
+    for (let i = 0; i < 6; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 1, 2, "rgba(255,255,255,0.6)");
+    }
+  },
+
+  stick(ctx, s) {
+    ctx.clearRect(0, 0, s, s);
+    diagPixels(ctx, 3, 13, 9, 1, -1, "#4f3416");
+    diagPixels(ctx, 4, 13, 8, 1, -1, "#8a6228");
+    diagPixels(ctx, 5, 13, 7, 1, -1, "#a07a3a");
+    px_(ctx, 12, 3, "#b08a4a");
+    px_(ctx, 5, 11, "#b08a4a");
+  },
+
+  iron_ingot(ctx, s) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 3, 6, 10, 5, "#cfcfcf");
+    rect(ctx, 4, 5, 8, 1, "#e8e8e8");
+    rect(ctx, 3, 10, 10, 1, "#8f8f8f");
+    rect(ctx, 3, 6, 1, 5, "#f2f2f2");
+    rect(ctx, 12, 6, 1, 5, "#a0a0a0");
+    rect(ctx, 5, 7, 3, 1, "#ffffff");
+  },
+
+  diamond(ctx, s) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 6, 3, 4, 1, "#a5f5ec");
+    rect(ctx, 5, 4, 6, 1, "#7ce8dc");
+    rect(ctx, 4, 5, 8, 3, "#4fd8c8");
+    rect(ctx, 5, 8, 6, 1, "#37b8a8");
+    rect(ctx, 6, 9, 4, 1, "#2a9a8c");
+    rect(ctx, 7, 10, 2, 1, "#1f7a70");
+    rect(ctx, 5, 5, 2, 1, "#8ff0e6");
+    px_(ctx, 6, 5, "#ffffff");
+  },
+
+  leather(ctx, s, rng) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 3, 4, 10, 8, "#9a6432");
+    rect(ctx, 3, 4, 10, 2, "#b8814a");
+    rect(ctx, 3, 10, 10, 2, "#6b4220");
+    rect(ctx, 3, 7, 10, 1, "#7a4f26");
+    px_(ctx, 5, 6, "#d8a86a");
+    for (let i = 0; i < 5; i++) {
+      px_(ctx, 4 + ((rng() * 8) | 0), 5 + ((rng() * 5) | 0), "rgba(70,40,15,0.5)");
+    }
+  },
+
+  porkchop(ctx, s, rng) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 5, 4, 8, 8, "#e07a7a");
+    rect(ctx, 5, 4, 8, 2, "#f0a0a0");
+    rect(ctx, 5, 10, 8, 2, "#b5514f");
+    rect(ctx, 2, 7, 4, 3, "#f2efe8");
+    rect(ctx, 2, 7, 1, 3, "#d8d4c8");
+    px_(ctx, 1, 8, "#ffffff");
+    for (let i = 0; i < 6; i++) {
+      rect(ctx, 6 + ((rng() * 6) | 0), 6 + ((rng() * 4) | 0), 1, 1, "rgba(255,220,220,0.75)");
+    }
+  },
+
+  beef(ctx, s, rng) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 3, 4, 10, 8, "#b0403c");
+    rect(ctx, 3, 4, 10, 2, "#d05a50");
+    rect(ctx, 3, 10, 10, 2, "#7f2a28");
+    for (let i = 0; i < 5; i++) {
+      rect(ctx, 4 + ((rng() * 7) | 0), 5 + ((rng() * 6) | 0), 3, 1, "rgba(245,225,215,0.8)");
+    }
+    px_(ctx, 4, 5, "#f0c8b8");
+  },
+
+  mutton(ctx, s, rng) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 4, 5, 8, 7, "#a85a3c");
+    rect(ctx, 4, 5, 8, 2, "#c47a52");
+    rect(ctx, 4, 10, 8, 2, "#7a3a24");
+    rect(ctx, 2, 8, 3, 2, "#f2efe8");
+    px_(ctx, 1, 8, "#ffffff");
+    for (let i = 0; i < 5; i++) {
+      px_(ctx, 5 + ((rng() * 6) | 0), 6 + ((rng() * 4) | 0), "rgba(240,200,170,0.7)");
+    }
+  },
+
+  rotten_flesh(ctx, s, rng) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 4, 4, 8, 8, "#6f7a3a");
+    rect(ctx, 4, 4, 8, 2, "#87924a");
+    rect(ctx, 4, 10, 8, 2, "#4e5626");
+    for (let i = 0; i < 10; i++) {
+      const x = 4 + ((rng() * 8) | 0);
+      const y = 4 + ((rng() * 8) | 0);
+      px_(ctx, x, y, rng() < 0.5 ? "#3f451c" : "#a0a860");
+    }
+    ctx.clearRect(3, 3, 2, 2);
+    ctx.clearRect(11, 11, 2, 2);
+  },
+});
 
 const TILE_NAMES = Object.keys(PAINTERS);
 

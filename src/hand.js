@@ -96,11 +96,11 @@ export class Hand {
     if (isItem(id)) {
       const rect = this.atlas.uvs[iconTile(id)];
       if (!rect) return;
-      const geometry = new THREE.PlaneGeometry(0.46, 0.46);
+      const geometry = new THREE.PlaneGeometry(0.38, 0.38);
       applyPlaneUVs(geometry, rect);
       const mesh = new THREE.Mesh(geometry, this.itemMaterial());
       mesh.rotation.set(0.16, 0.55, 0.38);
-      mesh.position.set(0.01, 0.01, 0.05);
+      mesh.position.set(0.02, 0.0, 0.02);
       this.mesh = mesh;
       this.group.add(mesh);
       return;

@@ -29,14 +29,22 @@ import {
 import {
   DEFAULT_HOTBAR,
   isArmor,
+  isFood,
+  foodValue,
   armorSlotOf,
   armorPoints,
   armorReduction,
   attackPower,
-  mineSpeed,
+  breakTimeWithTool,
+  canHarvest,
+  rollBlockDrop,
+  consumeIngredients,
+  recipeAvailable,
+  RECIPES,
   itemName,
   placeable,
 } from "./items.js";
+import { Inventory } from "./inventory.js";
 import { createAtlas, createCrackStrip, averageTileColors } from "./textures.js";
 import { World, BIOME_NAMES, DIMENSION_NAMES } from "./world.js";
 import { tryIgnitePortal, ensurePortal } from "./portals.js";
@@ -326,8 +334,14 @@ let inventoryOpen = false;
 let cameraMode = 0;
 let pauseBlockUntil = 0;
 let prevVelY = 0;
-const hotbar = [...DEFAULT_HOTBAR];
+let eatCooldown = 0;
+const inventory = new Inventory(36);
 const equipment = [0, 0, 0, 0];
+const CREATIVE_HOTBAR = [...DEFAULT_HOTBAR];
+
+function seedCreativeInventory() {
+  CREATIVE_HOTBAR.forEach((id, i) => inventory.set(i, { id, count: 1 }));
+}
 const underwaterEl = document.getElementById("underwater");
 
 const sfx = new Sfx();
@@ -336,10 +350,13 @@ const mobs = new Mobs(scene, {
   onAttack: (damage) => player?.damage(damage),
   onPoof: (pos, rgb, count, speed) =>
     spawnParticles(pos.x - 0.5, pos.y - 0.5, pos.z - 0.5, 0, count, speed, rgb),
+  onDrop: (id, count) => {
+    if (mode === "survival" && started) giveItem(id, count);
+  },
 });
 const ui = new UI({
   atlas,
-  hotbar,
+  inventory,
   onContinue: () => {
     if (input.touch) {
       if (!started) {
@@ -369,6 +386,11 @@ const ui = new UI({
   onInventoryPick: (id) => assignToSlot(id),
   onEquip: (slot) => toggleArmorSlot(slot),
   onCloseInventory: () => closeInventory(),
+  onCraft: (recipe) => craftItem(recipe),
+  onInventoryChanged: () => {
+    hand.setHeld(heldItem());
+    selfAvatar.setHeld(heldItem());
+  },
   onNameChange: (raw) => {
     const name = sanitizeName(raw) || randomName();
     playerName = name;
@@ -397,7 +419,7 @@ const input = new Input(renderer.domElement, {
   },
   onPlace: () => tryPlace(),
   onPick: () => pickBlock(),
-  onWheel: (dir) => selectSlot((selectedSlot + dir + hotbar.length) % hotbar.length),
+  onWheel: (dir) => selectSlot((selectedSlot + dir + 9) % 9),
   onHotbar: (i) => selectSlot(i),
   onInventory: () => toggleInventory(),
   onCamera: () => toggleCamera(),
@@ -501,6 +523,7 @@ function handleWelcome(msg) {
     sky.setDimension(currentDim);
     preloadSpawn();
     ready = true;
+    applySavedItems(null);
     refreshEquipment();
     setMode(mode, true);
     selectSlot(selectedSlot);
@@ -548,6 +571,10 @@ function setMode(next, silent = false) {
   ui.setMode(mode);
   input.setFlyButtonVisible(mode === "creative");
   ui.setHealth(player?.health ?? MAX_HEALTH, mode === "survival" && started);
+  if (player) ui.setHunger(player.hunger, mode === "survival" && started);
+  if (mode === "survival" && inventory.slots.every((slot) => !slot)) {
+    ui.toast("Supervivencia: golpea árboles y fabrica tus herramientas", 3200);
+  }
   if (!silent) ui.toast(mode === "survival" ? "Modo supervivencia" : "Modo creativo");
 }
 
@@ -579,30 +606,40 @@ function startSingleplayer() {
     selectedSlot = saved.selected ?? 0;
     mode = saved.mode ?? "creative";
     player.health = saved.health ?? player.maxHealth;
+    player.hunger = saved.hunger ?? player.maxHunger;
     ui.setStatus("", true);
     preloadAround(Math.floor(player.pos.x), Math.floor(player.pos.z));
+    ready = true;
   } else {
     preloadSpawn();
   }
   refreshEquipment();
   setMode(mode, true);
   selectSlot(selectedSlot);
+  ui.setHunger(player.hunger, mode === "survival");
 }
 
 function applySavedItems(saved) {
-  const savedHotbar = Array.isArray(saved?.hotbar) ? saved.hotbar : null;
-  if (savedHotbar && savedHotbar.length === hotbar.length) {
-    savedHotbar.forEach((id, i) => {
-      hotbar[i] = Number.isInteger(id) && id >= 0 && id <= 65535 ? id : 0;
+  const savedInv = Array.isArray(saved?.inventory) ? saved.inventory : null;
+  if (savedInv) {
+    inventory.load(savedInv);
+  } else if (Array.isArray(saved?.hotbar)) {
+    inventory.clear();
+    saved.hotbar.forEach((id, i) => {
+      if (i < 9 && Number.isInteger(id) && id > 0 && id <= 65535) inventory.set(i, { id, count: 1 });
     });
+  } else {
+    inventory.clear();
   }
+  if (mode === "creative" && inventory.slots.every((slot) => !slot)) seedCreativeInventory();
   const savedArmor = Array.isArray(saved?.armor) ? saved.armor : null;
   if (savedArmor && savedArmor.length === 4) {
     savedArmor.forEach((id, i) => {
       equipment[i] = Number.isInteger(id) && id >= 0 && id <= 65535 ? id : 0;
     });
   }
-  ui.buildHotbar();
+  ui.refreshHotbar();
+  ui.updateRecipeAvailability();
 }
 
 function preloadAround(x, z) {
@@ -794,12 +831,76 @@ function resetMining() {
 
 function breakBlock(t) {
   if (isUnbreakable(t.block)) return;
+  const drop = rollBlockDrop(t.block);
+  const harvest = canHarvest(t.block, heldItem());
   world.setBlock(t.x, t.y, t.z, AIR);
   if (mpActive) net.sendEdit(t.x, t.y, t.z, AIR, currentDim);
   hand.triggerSwing();
   sfx.play("break", t.block);
   spawnParticles(t.x, t.y, t.z, t.block, 10, 2.4);
+  if (mode === "survival" && drop && harvest) giveItem(drop.id, drop.count);
   if (t.block === OBSIDIAN) ignitePortalNear(t.x, t.y, t.z);
+}
+
+function giveItem(id, count = 1) {
+  if (!id || count <= 0) return 0;
+  const leftover = inventory.add(id, count);
+  const given = count - leftover;
+  if (given > 0) {
+    sfx.pickup();
+    ui.refreshHotbar();
+    ui.updateRecipeAvailability();
+  }
+  if (leftover > 0) ui.toast("Inventario lleno", 1600);
+  return leftover;
+}
+
+function consumeHeld(count = 1) {
+  if (mode === "creative") return;
+  const stack = inventory.get(selectedSlot);
+  if (!stack) return;
+  stack.count -= count;
+  if (stack.count <= 0) inventory.set(selectedSlot, null);
+  hand.setHeld(heldItem());
+  selfAvatar.setHeld(heldItem());
+  ui.refreshHotbar();
+  ui.updateRecipeAvailability();
+}
+
+function craftItem(recipe) {
+  if (!recipe || mode !== "survival") return false;
+  if (!recipeAvailable(recipe, inventory)) {
+    ui.toast("Faltan materiales", 1600);
+    return false;
+  }
+  if (!inventory.canAdd(recipe.outId, recipe.outCount)) {
+    ui.toast("Inventario lleno", 1600);
+    return false;
+  }
+  consumeIngredients(recipe, inventory);
+  inventory.add(recipe.outId, recipe.outCount);
+  sfx.craft();
+  ui.refreshHotbar();
+  ui.updateRecipeAvailability();
+  ui.toast(`Fabricado: ${itemName(recipe.outId)}`, 1500);
+  return true;
+}
+
+function eatFood() {
+  const stack = inventory.get(selectedSlot);
+  if (!stack || !isFood(stack.id)) return false;
+  if (mode === "creative") return true;
+  if (player.hunger >= player.maxHunger) {
+    ui.toast("No tienes hambre", 1400);
+    return true;
+  }
+  if (eatCooldown > 0) return true;
+  eatCooldown = 1;
+  player.eat(foodValue(stack.id));
+  consumeHeld(1);
+  sfx.eat();
+  ui.setHunger(player.hunger, mode === "survival" && started);
+  return true;
 }
 
 function ignitePortalNear(x, y, z) {
@@ -849,7 +950,7 @@ function updateMining(dt) {
     miningKey = key;
     miningProgress = 0;
   }
-  miningProgress += (dt * mineSpeed(heldItem(), target.block)) / breakTime(target.block);
+  miningProgress += dt / breakTimeWithTool(target.block, heldItem());
   miningSound -= dt;
   if (miningSound <= 0) {
     sfx.step(target.block);
@@ -868,6 +969,7 @@ function updateMining(dt) {
 
 function updatePlace(dt) {
   if (placeCooldown > 0) placeCooldown -= dt;
+  if (eatCooldown > 0) eatCooldown -= dt;
   if (!canInteract()) return;
   if (input.isMouseDown(2) && placeCooldown <= 0) tryPlace();
 }
@@ -877,6 +979,10 @@ function tryPlace() {
   const held = heldItem();
   if (isArmor(held)) {
     toggleArmorSlot(armorSlotOf(held));
+    return;
+  }
+  if (isFood(held)) {
+    eatFood();
     return;
   }
   if (!currentTarget || !placeable(held)) return;
@@ -899,6 +1005,7 @@ function tryPlace() {
   sfx.play("place", id);
   spawnParticles(x, y, z, id, 5, 1.4);
   placeCooldown = 0.22;
+  consumeHeld(1);
   if (id === OBSIDIAN) ignitePortalNear(x, y, z);
 }
 
@@ -906,11 +1013,22 @@ function pickBlock() {
   if (!canInteract() || !currentTarget) return;
   const block = currentTarget.block;
   if (block === AIR || block === WATER) return;
-  assignToSlot(block);
+  if (mode === "creative") {
+    assignToSlot(block);
+    return;
+  }
+  for (let i = 0; i < 9; i++) {
+    const stack = inventory.get(i);
+    if (stack && stack.id === block) {
+      selectSlot(i);
+      return;
+    }
+  }
+  ui.toast(`${itemName(block)} no está en la barra`, 1600);
 }
 
 function heldItem() {
-  return hotbar[selectedSlot] || 0;
+  return inventory.get(selectedSlot)?.id || 0;
 }
 
 function selectSlot(i) {
@@ -923,9 +1041,8 @@ function selectSlot(i) {
 
 function assignToSlot(id) {
   if (!id) return;
-  hotbar[selectedSlot] = id;
-  ui.buildHotbar();
-  ui.select(selectedSlot);
+  inventory.set(selectedSlot, { id, count: 1 });
+  ui.refreshHotbar();
   hand.setHeld(heldItem());
   refreshSelfAvatar();
   sfx.click();
@@ -944,19 +1061,26 @@ function refreshSelfAvatar() {
   selfAvatar.setArmor(equipment);
 }
 
-function equipArmor(id) {
+function equipArmorItem(id, sourceSlot = -1) {
   const slot = armorSlotOf(id);
   if (slot < 0 || !player) return false;
   const prev = equipment[slot];
   equipment[slot] = id;
-  hotbar[selectedSlot] = prev || 0;
+  if (sourceSlot >= 0 && sourceSlot < 9) {
+    inventory.set(sourceSlot, prev ? { id: prev, count: 1 } : null);
+  } else if (prev) {
+    inventory.add(prev, 1);
+  }
   refreshEquipment();
-  ui.buildHotbar();
-  ui.select(selectedSlot);
+  ui.refreshHotbar();
   hand.setHeld(heldItem());
   refreshSelfAvatar();
   sfx.equip();
   return true;
+}
+
+function equipArmor(id) {
+  return equipArmorItem(id, -1);
 }
 
 function toggleArmorSlot(slot) {
@@ -964,21 +1088,25 @@ function toggleArmorSlot(slot) {
   const held = heldItem();
   if (isArmor(held) && armorSlotOf(held) === slot) {
     const name = itemName(held);
-    equipArmor(held);
+    equipArmorItem(held, selectedSlot);
     ui.toast(`${name} equipado`, 1600);
     return;
   }
   const current = equipment[slot];
   if (current) {
+    if (mode === "creative") {
+      inventory.set(selectedSlot, { id: current, count: 1 });
+    } else if (inventory.add(current, 1) > 0) {
+      ui.toast("Inventario lleno", 1600);
+      return;
+    }
     equipment[slot] = 0;
-    hotbar[selectedSlot] = current;
     refreshEquipment();
-    ui.buildHotbar();
-    ui.select(selectedSlot);
+    ui.refreshHotbar();
     hand.setHeld(heldItem());
     refreshSelfAvatar();
     sfx.equip();
-    ui.toast(`${itemName(current)} a la barra`, 1600);
+    ui.toast(`${itemName(current)} guardado`, 1600);
     return;
   }
   ui.toast(isArmor(held) ? "Esa pieza no va en este hueco" : "Selecciona una pieza de armadura", 1800);
@@ -1058,7 +1186,8 @@ function doSave(notify) {
     selected: selectedSlot,
     mode,
     health: player.health,
-    hotbar: [...hotbar],
+    hunger: player.hunger,
+    inventory: inventory.serialize(),
     armor: [...equipment],
     player: {
       x: player.pos.x,
@@ -1098,12 +1227,15 @@ function doLoad() {
   selectedSlot = saved.selected ?? 0;
   mode = saved.mode ?? "creative";
   player.health = saved.health ?? player.maxHealth;
+  player.hunger = saved.hunger ?? player.maxHunger;
+  player.air = player.maxAir;
   player.dead = false;
   player.world = world;
   applySavedItems(saved);
   refreshEquipment();
   selectSlot(selectedSlot);
   setMode(mode, true);
+  ui.setHunger(player.hunger, mode === "survival");
   if (saved.player) {
     player.pos.set(saved.player.x, saved.player.y, saved.player.z);
     player.yaw = saved.player.yaw ?? 0;
@@ -1144,7 +1276,14 @@ function doNewWorld() {
   player.flying = false;
   player.vel.set(0, 0, 0);
   player.health = player.maxHealth;
+  player.hunger = player.maxHunger;
+  player.air = player.maxAir;
   player.dead = false;
+  inventory.clear();
+  if (mode === "creative") seedCreativeInventory();
+  ui.refreshHotbar();
+  ui.updateRecipeAvailability();
+  ui.setHunger(player.hunger, mode === "survival");
   preloadSpawn();
   ui.showMenu("pause");
   ui.toast("Mundo nuevo generado");
@@ -1342,6 +1481,8 @@ function updateHud(dt) {
       `Mano: ${itemName(heldItem())} · Apunta: ${targetName} · ${state}${healthLine}${armorLine}`
   );
   ui.setHealth(player.health, mode === "survival" && started);
+  ui.setHunger(player.hunger, mode === "survival" && started);
+  ui.setAir(player.air, started && (underwater || player.air < player.maxAir));
 }
 
 function updateUnderwater() {
@@ -1628,8 +1769,88 @@ if (typeof window !== "undefined") {
       return inventoryOpen;
     },
     setHeldItem(id) {
-      assignToSlot(id);
+      if (mode === "creative") assignToSlot(id);
+      else {
+        inventory.set(selectedSlot, { id, count: 1 });
+        ui.refreshHotbar();
+        hand.setHeld(heldItem());
+        selfAvatar.setHeld(heldItem());
+      }
       return heldItem();
+    },
+    give(id, count = 1) {
+      const leftover = inventory.add(id, count);
+      ui.refreshHotbar();
+      ui.updateRecipeAvailability();
+      return count - leftover;
+    },
+    get inventory() {
+      return inventory.serialize();
+    },
+    get hunger() {
+      return player.hunger;
+    },
+    get air() {
+      return player.air;
+    },
+    get recipes() {
+      return RECIPES.map((recipe, index) => ({ index, out: recipe.outId, group: recipe.group }));
+    },
+    craftAt(index) {
+      return craftItem(RECIPES[index]);
+    },
+    eat() {
+      return eatFood();
+    },
+    selectHotbar(index) {
+      selectSlot(index);
+      return heldItem();
+    },
+    clearInventory() {
+      inventory.clear();
+      ui.refreshHotbar();
+      ui.updateRecipeAvailability();
+      hand.setHeld(0);
+      selfAvatar.setHeld(0);
+      return true;
+    },
+    breakBlockAt(x, y, z) {
+      const block = world.getBlock(x, y, z);
+      if (block === AIR) return null;
+      const before = inventory.serialize();
+      breakBlock({ x, y, z, block, nx: 0, ny: 1, nz: 0 });
+      const after = inventory.serialize();
+      return { block, before, after };
+    },
+    placeBlockAt(x, y, z, id) {
+      world.setBlock(x, y, z, id);
+      if (mpActive) net.sendEdit(x, y, z, id, currentDim);
+      return world.getBlock(x, y, z);
+    },
+    killMobs() {
+      const killed = [];
+      for (const mob of [...mobs.list]) {
+        killed.push(mob.type);
+        mobs.damage(mob, 999, new THREE.Vector3(0, 0, 0));
+      }
+      return killed;
+    },
+    setHunger(value) {
+      player.hunger = Math.max(0, Math.min(player.maxHunger, value));
+      ui.setHunger(player.hunger, mode === "survival" && started);
+      return player.hunger;
+    },
+    setAir(value) {
+      player.air = Math.max(0, Math.min(player.maxAir, value));
+      return player.air;
+    },
+    save() {
+      doSave(true);
+      return true;
+    },
+    load() {
+      doLoad();
+      return true;
     },
     equip(id) {
       if (!isArmor(id)) return false;

@@ -41,10 +41,12 @@ import {
   END_PORTAL_FRAME,
   END_PORTAL,
   OBSIDIAN,
+  IRON_ORE,
+  DIAMOND_ORE,
   isSolid,
   isLiquid,
 } from "./blocks.js";
-import { fbm2, fbm3, hash2, mulberry32 } from "./noise.js";
+import { fbm2, fbm3, hash2, mulberry32, valueNoise3 } from "./noise.js";
 import { STRUCTURES } from "./structures.js";
 
 const CS = CHUNK_SIZE;
@@ -368,6 +370,8 @@ export class World {
           if (id === STONE && y > 3 && y < h - 2) {
             const cave = fbm3(wx * 0.09, y * 0.13, wz * 0.09, this.seed + 555, 2);
             if (cave > 0.635) id = AIR;
+            else if (y < 46 && valueNoise3(wx * 0.16, y * 0.16, wz * 0.16, this.seed + 7777) > 0.86) id = IRON_ORE;
+            else if (y < 18 && valueNoise3(wx * 0.21, y * 0.21, wz * 0.21, this.seed + 8888) > 0.91) id = DIAMOND_ORE;
           }
           if (id !== AIR) blocks[this.localIndex(lx, y, lz)] = id;
         }

@@ -140,10 +140,31 @@ export class Sfx {
     this.tone({ type: "triangle", from: 420, to: 300, dur: 0.12, gain: 0.05, delay: 0.04 });
   }
 
+  pickup() {
+    this.tone({ type: "square", from: 620, to: 940, dur: 0.07, gain: 0.05 });
+    this.tone({ type: "square", from: 940, to: 1240, dur: 0.05, gain: 0.035, delay: 0.05 });
+  }
+
+  eat() {
+    for (let i = 0; i < 3; i++) {
+      this.noiseBurst({ dur: 0.09, freq: 420, q: 0.7, type: "lowpass", gain: 0.16 });
+      this.noiseBurst({ dur: 0.07, freq: 700, q: 1.1, gain: 0.1 });
+    }
+  }
+
+  craft() {
+    this.noiseBurst({ dur: 0.06, freq: 900, q: 1.4, gain: 0.14 });
+    this.noiseBurst({ dur: 0.08, freq: 620, q: 1.2, gain: 0.12 });
+    this.tone({ type: "triangle", from: 520, to: 780, dur: 0.12, gain: 0.05, delay: 0.05 });
+  }
+
   mob(kind) {
     if (kind === "zombie") {
       this.tone({ type: "sawtooth", from: 110, to: 70, dur: 0.7, gain: 0.1, vibrato: 14, vibratoRate: 5 });
       this.noiseBurst({ dur: 0.6, freq: 380, q: 0.7, type: "lowpass", gain: 0.07 });
+    } else if (kind === "cow") {
+      this.tone({ type: "sawtooth", from: 220, to: 150, dur: 0.6, gain: 0.08, vibrato: 10, vibratoRate: 6 });
+      this.tone({ type: "triangle", from: 180, to: 120, dur: 0.5, gain: 0.05, delay: 0.1 });
     } else if (kind === "pig") {
       this.tone({ type: "sawtooth", from: 460, to: 300, dur: 0.18, gain: 0.07, vibrato: 40, vibratoRate: 22 });
       this.tone({ type: "sawtooth", from: 420, to: 260, dur: 0.14, gain: 0.06, delay: 0.18, vibrato: 40, vibratoRate: 24 });
