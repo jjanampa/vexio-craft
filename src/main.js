@@ -16,6 +16,7 @@ import {
   OBSIDIAN,
   NETHER_PORTAL,
   END_PORTAL,
+  TNT,
   BLOCKS,
   isLiquid,
   isLava,
@@ -137,9 +138,26 @@ materialWater.onBeforeCompile = (shader) => {
   waterShader = shader;
 };
 
-const hand = new Hand(atlas, texture);
+const CHARACTER_KEY = "vexio-craft-character-v1";
+
+function loadCharacter() {
+  try {
+    return localStorage.getItem(CHARACTER_KEY) || "steve";
+  } catch {
+    return "steve";
+  }
+}
+
+function storeCharacter(id) {
+  try {
+    localStorage.setItem(CHARACTER_KEY, id);
+  } catch {}
+}
+
+let playerCharacter = loadCharacter();
+const hand = new Hand(atlas, texture, playerCharacter);
 hand.setHeld(DEFAULT_HOTBAR[0]);
-const selfAvatar = new Avatar({ color: 0x3fb8a8, atlas, texture });
+const selfAvatar = new Avatar({ character: playerCharacter, atlas, texture });
 selfAvatar.group.visible = false;
 scene.add(selfAvatar.group);
 
@@ -294,6 +312,17 @@ function sanitizeName(raw) {
 }
 
 let playerName = loadName() || randomName();
+
+function setCharacter(id) {
+  if (typeof id !== "string" || !id) return;
+  playerCharacter = id;
+  storeCharacter(id);
+  selfAvatar.setCharacter(id);
+  hand.setCharacter(id);
+  ui.setCharacter(id);
+  if (started && mpActive) net.sendState(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, currentDim, heldItem(), equipment, playerCharacter);
+}
+
 let mpActive = false;
 let mpDecided = false;
 let stateTimer = 0;
@@ -335,6 +364,9 @@ let cameraMode = 0;
 let pauseBlockUntil = 0;
 let prevVelY = 0;
 let eatCooldown = 0;
+const primedTnt = [];
+const editQueue = [];
+let editFlushTimer = 0;
 const inventory = new Inventory(36);
 const equipment = [0, 0, 0, 0];
 const CREATIVE_HOTBAR = [...DEFAULT_HOTBAR];
@@ -353,6 +385,7 @@ const mobs = new Mobs(scene, {
   onDrop: (id, count) => {
     if (mode === "survival" && started) giveItem(id, count);
   },
+  onExplode: (x, y, z, radius) => explode(x, y, z, radius, true),
 });
 const ui = new UI({
   atlas,
@@ -391,6 +424,7 @@ const ui = new UI({
     hand.setHeld(heldItem());
     selfAvatar.setHeld(heldItem());
   },
+  onCharacterChange: (id) => setCharacter(id),
   onNameChange: (raw) => {
     const name = sanitizeName(raw) || randomName();
     playerName = name;
@@ -465,6 +499,14 @@ const net = new Net({
   onEdit: (msg) => applyRemoteEdit(msg),
   onSwing: (id, action) => {
     if (action === "swing") remotePlayers.swing(id);
+  },
+  onPrime: (x, y, z) => {
+    if (!world) return;
+    if (primeTNT(x, y, z, false, 3)) sfx.fuse();
+  },
+  onBoom: (x, y, z, r) => {
+    if (!world) return;
+    explode(x, y, z, r, false);
   },
   onStatus: (connected, wasConnected) => {
     if (!wasConnected) return;
@@ -903,6 +945,121 @@ function eatFood() {
   return true;
 }
 
+function blockMesh(id) {
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const uv = geometry.attributes.uv;
+  for (let face = 0; face < 6; face++) {
+    const rect = atlas.uvs[faceTile(id, face)];
+    if (!rect) continue;
+    for (let v = 0; v < 4; v++) {
+      const i = face * 4 + v;
+      uv.setXY(i, rect.u0 + uv.getX(i) * (rect.u1 - rect.u0), rect.v0 + uv.getY(i) * (rect.v1 - rect.v0));
+    }
+  }
+  uv.needsUpdate = true;
+  return new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ map: texture }));
+}
+
+function queueEdit(x, y, z, id) {
+  editQueue.push([x, y, z, id]);
+}
+
+function flushEditQueue(dt) {
+  if (!mpActive || editQueue.length === 0) return;
+  editFlushTimer += dt;
+  if (editFlushTimer < 0.03) return;
+  editFlushTimer = 0;
+  const [x, y, z, id] = editQueue.shift();
+  net.sendEdit(x, y, z, id, currentDim);
+}
+
+function primeTNT(x, y, z, mine, fuse = 3) {
+  if (world.getBlock(x, y, z) !== TNT) return false;
+  world.setBlock(x, y, z, AIR);
+  if (mpActive && mine) queueEdit(x, y, z, AIR);
+  const mesh = blockMesh(TNT);
+  mesh.scale.setScalar(0.98);
+  mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+  scene.add(mesh);
+  primedTnt.push({ x, y, z, timer: fuse, mesh, mine });
+  return true;
+}
+
+function igniteTNT(x, y, z) {
+  if (!primeTNT(x, y, z, true, 3)) return false;
+  if (mpActive) net.sendPrime(x, y, z);
+  sfx.fuse();
+  ui.toast("¡TNT encendida! ¡Aléjate!", 2200);
+  return true;
+}
+
+function updatePrimedTnt(dt) {
+  for (const primed of [...primedTnt]) {
+    primed.timer -= dt;
+    const pulse = 1 + Math.sin((3 - primed.timer) * 22) * 0.06;
+    primed.mesh.scale.setScalar(0.98 * pulse);
+    primed.mesh.material.emissive?.setHex(pulse > 1 ? 0x882222 : 0x000000);
+    if (primed.timer > 0) continue;
+    scene.remove(primed.mesh);
+    primed.mesh.geometry.dispose();
+    primed.mesh.material.dispose();
+    primedTnt.splice(primedTnt.indexOf(primed), 1);
+    explode(primed.x, primed.y, primed.z, 4, primed.mine);
+  }
+}
+
+function explode(x, y, z, radius, broadcast = true) {
+  const destroyed = [];
+  const cx = Math.floor(x);
+  const cy = Math.floor(y);
+  const cz = Math.floor(z);
+  const r = Math.ceil(radius);
+  for (let dx = -r; dx <= r; dx++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dz = -r; dz <= r; dz++) {
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist > radius) continue;
+        const bx = cx + dx;
+        const by = cy + dy;
+        const bz = cz + dz;
+        if (by < 1 || by >= WORLD_HEIGHT) continue;
+        const block = world.getBlock(bx, by, bz);
+        if (block === AIR || block === WATER || block === LAVA) continue;
+        if (isUnbreakable(block) || isPortal(block)) continue;
+        if (block === TNT) {
+          primeTNT(bx, by, bz, false, 0.6 + Math.random() * 0.6);
+          continue;
+        }
+        world.setBlock(bx, by, bz, AIR);
+        destroyed.push([bx, by, bz]);
+      }
+    }
+  }
+  spawnParticles(cx - 0.5, cy - 0.5, cz - 0.5, 0, 22, 7, [1, 0.72, 0.28]);
+  spawnParticles(cx - 0.5, cy - 0.5, cz - 0.5, 0, 16, 3.4, [0.3, 0.28, 0.26]);
+  sfx.explosion();
+  const center = new THREE.Vector3(cx + 0.5, cy + 0.5, cz + 0.5);
+  const pd = player.pos.distanceTo(center);
+  if (pd < radius + 2.5 && !player.dead) {
+    const damage = Math.max(2, Math.round((1 - pd / (radius + 2.5)) * 20));
+    player.damage(damage);
+    const dir = player.pos.clone().sub(center);
+    dir.y = 0;
+    if (dir.lengthSq() < 1e-4) dir.set(0, 0, 1);
+    dir.normalize();
+    player.vel.x += dir.x * 8;
+    player.vel.z += dir.z * 8;
+    player.vel.y = Math.max(player.vel.y, 5);
+    player.onGround = false;
+  }
+  mobs.explode(center.x, center.y, center.z, radius);
+  if (mpActive) {
+    if (broadcast) net.sendBoom(cx, cy, cz, radius);
+    for (const [bx, by, bz] of destroyed) queueEdit(bx, by, bz, AIR);
+  }
+  return destroyed;
+}
+
 function ignitePortalNear(x, y, z) {
   const changed = tryIgnitePortal(world, x, y, z);
   if (!changed || changed.length === 0) return;
@@ -935,6 +1092,14 @@ function updateMining(dt) {
   }
   const target = currentTarget;
   if (isUnbreakable(target.block)) {
+    resetMining();
+    return;
+  }
+  if (target.block === TNT) {
+    if (breakCooldown <= 0) {
+      igniteTNT(target.x, target.y, target.z);
+      breakCooldown = 0.4;
+    }
     resetMining();
     return;
   }
@@ -1543,6 +1708,8 @@ function frame() {
   updateUnderwater();
   streamChunks();
   updateParticles(dt);
+  updatePrimedTnt(dt);
+  flushEditQueue(dt);
   updateHud(dt);
   remotePlayers.update(dt);
 
@@ -1575,7 +1742,8 @@ function frame() {
         player.pitch,
         currentDim,
         heldItem(),
-        equipment
+        equipment,
+        playerCharacter
       );
     }
   }
@@ -1605,6 +1773,7 @@ window.addEventListener("pointerdown", () => sfx.resume(), { once: true });
 
 ui.showHud();
 ui.setPlayerName(playerName);
+ui.setCharacter(playerCharacter);
 ui.showMenu("start", { ready: false });
 ui.setStatus("Conectando al servidor…", false);
 net.connect(playerName);
@@ -1765,6 +1934,13 @@ if (typeof window !== "undefined") {
     get cameraMode() {
       return cameraMode;
     },
+    get character() {
+      return playerCharacter;
+    },
+    setCharacter(id) {
+      setCharacter(id);
+      return playerCharacter;
+    },
     get inventoryOpen() {
       return inventoryOpen;
     },
@@ -1834,6 +2010,18 @@ if (typeof window !== "undefined") {
         mobs.damage(mob, 999, new THREE.Vector3(0, 0, 0));
       }
       return killed;
+    },
+    primeAt(x, y, z) {
+      return igniteTNT(x, y, z);
+    },
+    explodeAt(x, y, z, r = 4) {
+      return explode(x, y, z, r, true).length;
+    },
+    get primed() {
+      return primedTnt.length;
+    },
+    get editsQueued() {
+      return editQueue.length;
     },
     setHunger(value) {
       player.hunger = Math.max(0, Math.min(player.maxHunger, value));

@@ -20,6 +20,14 @@ import {
   LEAVES,
   IRON_ORE,
   DIAMOND_ORE,
+  GOLD_ORE,
+  IRON_BLOCK,
+  GOLD_BLOCK,
+  DIAMOND_BLOCK,
+  CRAFTING_TABLE,
+  FURNACE,
+  TNT,
+  SAND,
   isPlant,
   breakTime,
 } from "./blocks.js";
@@ -96,6 +104,8 @@ export const STICK = 1300;
 export const IRON_INGOT = 1301;
 export const DIAMOND = 1302;
 export const LEATHER = 1303;
+export const GOLD_INGOT = 1304;
+export const GUNPOWDER = 1305;
 
 const FOODS = {
   [PORKCHOP]: { name: "Chuleta de cerdo", icon: "porkchop", food: 8 },
@@ -109,6 +119,8 @@ const MATERIALS = {
   [IRON_INGOT]: { name: "Lingote de hierro", icon: "iron_ingot" },
   [DIAMOND]: { name: "Diamante", icon: "diamond" },
   [LEATHER]: { name: "Cuero", icon: "leather" },
+  [GOLD_INGOT]: { name: "Lingote de oro", icon: "gold_ingot" },
+  [GUNPOWDER]: { name: "Pólvora", icon: "gunpowder" },
 };
 
 for (const [id, def] of Object.entries(FOODS)) {
@@ -236,6 +248,7 @@ export function rollBlockDrop(blockId) {
   if (blockId === STONE) return { id: COBBLE, count: 1 };
   if (blockId === IRON_ORE) return { id: IRON_INGOT, count: 1 };
   if (blockId === DIAMOND_ORE) return { id: DIAMOND, count: 1 };
+  if (blockId === GOLD_ORE) return { id: GOLD_INGOT, count: 1 };
   if (blockId === GLASS) return null;
   if (blockId === LEAVES) return Math.random() < 0.33 ? { id: LEAVES, count: 1 } : null;
   if (BLOCKS[blockId].unbreakable || BLOCKS[blockId].portal) return null;
@@ -261,6 +274,18 @@ for (const [log, planks] of LOG_TO_PLANKS) {
   addRecipe("Materiales", planks, 4, [{ ids: [log], count: 1 }]);
 }
 addRecipe("Materiales", STICK, 4, [{ ids: ANY_PLANKS, count: 2 }]);
+addRecipe("Materiales", CRAFTING_TABLE, 1, [{ ids: ANY_PLANKS, count: 4 }]);
+addRecipe("Materiales", FURNACE, 1, [{ ids: [COBBLE], count: 8 }]);
+addRecipe("Materiales", IRON_BLOCK, 1, [{ ids: [IRON_INGOT], count: 9 }]);
+addRecipe("Materiales", IRON_INGOT, 9, [{ ids: [IRON_BLOCK], count: 1 }]);
+addRecipe("Materiales", GOLD_BLOCK, 1, [{ ids: [GOLD_INGOT], count: 9 }]);
+addRecipe("Materiales", GOLD_INGOT, 9, [{ ids: [GOLD_BLOCK], count: 1 }]);
+addRecipe("Materiales", DIAMOND_BLOCK, 1, [{ ids: [DIAMOND], count: 9 }]);
+addRecipe("Materiales", DIAMOND, 9, [{ ids: [DIAMOND_BLOCK], count: 1 }]);
+addRecipe("Materiales", TNT, 1, [
+  { ids: [GUNPOWDER], count: 4 },
+  { ids: [SAND], count: 4 },
+]);
 
 const TOOL_COSTS = {
   sword: { material: 2, stick: 1 },

@@ -63,6 +63,15 @@ export const SPAWNER = 55;
 export const IRON_ORE = 56;
 export const DIAMOND_ORE = 57;
 export const WOOL = 58;
+export const GOLD_ORE = 59;
+export const IRON_BLOCK = 60;
+export const GOLD_BLOCK = 61;
+export const DIAMOND_BLOCK = 62;
+export const CRAFTING_TABLE = 63;
+export const FURNACE = 64;
+export const TNT = 65;
+export const PUMPKIN = 66;
+export const ICE = 67;
 
 export const BLOCKS = {
   [AIR]: { name: "Aire", solid: false, opaque: false },
@@ -130,6 +139,15 @@ export const BLOCKS = {
   [IRON_ORE]: { name: "Mena de hierro", solid: true, opaque: true, sound: "stone", hardness: 1.6, pickaxe: 1, tiles: { all: "iron_ore" } },
   [DIAMOND_ORE]: { name: "Mena de diamante", solid: true, opaque: true, sound: "stone", hardness: 2.2, pickaxe: 2, tiles: { all: "diamond_ore" } },
   [WOOL]: { name: "Lana", solid: true, opaque: true, sound: "snow", hardness: 0.3, tiles: { all: "wool" } },
+  [GOLD_ORE]: { name: "Mena de oro", solid: true, opaque: true, sound: "stone", hardness: 1.8, pickaxe: 2, tiles: { all: "gold_ore" } },
+  [IRON_BLOCK]: { name: "Bloque de hierro", solid: true, opaque: true, sound: "stone", hardness: 2.2, pickaxe: 1, tiles: { all: "iron_block" } },
+  [GOLD_BLOCK]: { name: "Bloque de oro", solid: true, opaque: true, sound: "stone", hardness: 2.2, pickaxe: 2, tiles: { all: "gold_block" } },
+  [DIAMOND_BLOCK]: { name: "Bloque de diamante", solid: true, opaque: true, sound: "stone", hardness: 2.4, pickaxe: 2, tiles: { all: "diamond_block" } },
+  [CRAFTING_TABLE]: { name: "Mesa de crafteo", solid: true, opaque: true, sound: "wood", hardness: 0.8, tiles: { top: "crafting_table_top", bottom: "planks", side: "crafting_table_side" } },
+  [FURNACE]: { name: "Horno", solid: true, opaque: true, sound: "stone", hardness: 1.6, pickaxe: 0, tiles: { top: "furnace_top", bottom: "furnace_top", side: "furnace_front" } },
+  [TNT]: { name: "TNT", solid: true, opaque: true, sound: "sand", hardness: 0.1, tiles: { top: "tnt_top", bottom: "tnt_bottom", side: "tnt_side" } },
+  [PUMPKIN]: { name: "Calabaza", solid: true, opaque: true, sound: "grass", hardness: 0.5, tiles: { top: "pumpkin_top", bottom: "pumpkin_top", side: "pumpkin_side" } },
+  [ICE]: { name: "Hielo", solid: true, opaque: false, sound: "glass", hardness: 0.5, tiles: { all: "ice" } },
 };
 
 const GRASS_TINT = {

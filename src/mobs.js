@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Avatar } from "./avatar.js";
 import { WOOL, GRASS, GRASS_SNOWY, PODZOL, DIRT, SNOW, SAND, RED_SAND, isSolid, isLiquid } from "./blocks.js";
-import { PORKCHOP, BEEF, MUTTON, ROTTEN_FLESH, LEATHER } from "./items.js";
+import { PORKCHOP, BEEF, MUTTON, ROTTEN_FLESH, LEATHER, GUNPOWDER } from "./items.js";
 import { SEA_LEVEL, GRAVITY } from "./config.js";
 
 const TYPES = {
@@ -73,6 +73,24 @@ const TYPES = {
     poof: 0.3,
     drops: [[ROTTEN_FLESH, 0, 2]],
   },
+  creeper: {
+    name: "Creeper",
+    hp: 20,
+    speed: 1.4,
+    chase: 2.2,
+    flee: 0,
+    damage: 0,
+    hostile: true,
+    sound: "creeper",
+    explodes: true,
+    fuse: 1.5,
+    blast: 3.2,
+    fuseRange: 2.5,
+    collide: { half: 0.35, height: 1.7 },
+    hitbox: { hx: 0.42, hy: 0.85, hz: 0.42, cy: 0.85 },
+    poof: 0.35,
+    drops: [[GUNPOWDER, 0, 2]],
+  },
 };
 
 function box(w, h, d, material) {
@@ -126,22 +144,108 @@ function buildQuadruped(def) {
   return { group, container, parts: { head, body }, legs, mats, avatar: null };
 }
 
+const ZOMBIE_CHARACTER = {
+  id: "zombie",
+  name: "Zombi",
+  skin: "#4f8a4a",
+  skinShade: "#3c6b38",
+  hair: "#2f4a2c",
+  hairLight: "#3f5f3a",
+  eyes: "#101c12",
+  shirt: "#3a5588",
+  shirtShade: "#2c4066",
+  shirtLight: "#5578a8",
+  sleeves: "#3a5588",
+  pants: "#2f4668",
+  pantsShade: "#243a55",
+  shoes: "#1f2f45",
+  mouth: "#20301c",
+};
+
+let creeperTextureCache = null;
+
+function creeperTexture() {
+  if (creeperTextureCache) return creeperTextureCache;
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext("2d");
+  const colors = ["#4f8a3a", "#437a30", "#5c9a44", "#3a6b28"];
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      ctx.fillStyle = colors[(Math.random() * colors.length) | 0];
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  for (let i = 0; i < 22; i++) {
+    ctx.fillStyle = "rgba(28,64,24,0.5)";
+    ctx.fillRect((Math.random() * 15) | 0, (Math.random() * 16) | 0, 2, 1);
+  }
+  for (let i = 0; i < 10; i++) {
+    ctx.fillStyle = "rgba(110,170,90,0.45)";
+    ctx.fillRect((Math.random() * 16) | 0, (Math.random() * 16) | 0, 1, 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  creeperTextureCache = texture;
+  return texture;
+}
+
+function buildCreeper() {
+  const group = new THREE.Group();
+  const container = new THREE.Group();
+  group.add(container);
+  const material = new THREE.MeshLambertMaterial({ map: creeperTexture() });
+  const faceMaterial = new THREE.MeshLambertMaterial({ color: 0x101810 });
+  const mats = [material];
+
+  const body = box(0.42, 0.9, 0.5, material);
+  body.position.y = 0.75;
+  container.add(body);
+
+  const head = new THREE.Group();
+  head.position.y = 1.45;
+  const headMesh = box(0.5, 0.5, 0.5, material);
+  headMesh.position.y = 0.25;
+  head.add(headMesh);
+  const eyeL = box(0.12, 0.12, 0.03, faceMaterial);
+  eyeL.position.set(-0.13, 0.33, -0.26);
+  head.add(eyeL);
+  const eyeR = box(0.12, 0.12, 0.03, faceMaterial);
+  eyeR.position.set(0.13, 0.33, -0.26);
+  head.add(eyeR);
+  const mouth = box(0.18, 0.2, 0.03, faceMaterial);
+  mouth.position.set(0, 0.1, -0.26);
+  head.add(mouth);
+  container.add(head);
+
+  const legs = [];
+  for (const [lx, lz] of [
+    [-0.16, -0.18],
+    [0.16, -0.18],
+    [-0.16, 0.18],
+    [0.16, 0.18],
+  ]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(lx, 0.3, lz);
+    const mesh = box(0.16, 0.3, 0.16, material);
+    mesh.position.y = -0.15;
+    pivot.add(mesh);
+    container.add(pivot);
+    legs.push(pivot);
+  }
+
+  return { group, container, parts: { head, body }, legs, mats, avatar: null };
+}
+
 function buildZombie() {
   const avatar = new Avatar({
-    skin: 0x4f8a4a,
-    shirt: 0x3a5588,
-    pants: 0x2f4668,
+    character: ZOMBIE_CHARACTER,
     armsForward: true,
   });
-  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x14210f });
-  for (const ex of [-0.12, 0.12]) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.02), eyeMat);
-    eye.position.set(ex, 0.32, -0.26);
-    avatar.parts.head.add(eye);
-  }
-  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.02), eyeMat);
-  mouth.position.set(0, 0.16, -0.26);
-  avatar.parts.head.add(mouth);
   const mats = [];
   avatar.group.traverse((child) => {
     if (child.material && child.material.emissive && !child.material.userData.shared) mats.push(child.material);
@@ -175,6 +279,7 @@ export class Mobs {
     this.onAttack = handlers.onAttack || null;
     this.onPoof = handlers.onPoof || null;
     this.onDrop = handlers.onDrop || null;
+    this.onExplode = handlers.onExplode || null;
     this.world = null;
     this.list = [];
     this.ids = 0;
@@ -236,7 +341,8 @@ export class Mobs {
 
   spawn(type, x, z, y) {
     const def = TYPES[type];
-    const built = type === "zombie" ? buildZombie() : buildQuadruped(def);
+    const built =
+      type === "zombie" ? buildZombie() : type === "creeper" ? buildCreeper() : buildQuadruped(def);
     const mob = {
       id: ++this.ids,
       type,
@@ -257,6 +363,7 @@ export class Mobs {
       wanderTimer: 1 + Math.random() * 3,
       hurtTimer: 0,
       fleeTimer: 0,
+      fuseTimer: 0,
       attackTimer: 0,
       soundTimer: 1 + Math.random() * 5,
       burn: 0,
@@ -295,7 +402,8 @@ export class Mobs {
       const z = Math.floor(player.pos.z + Math.sin(angle) * dist);
       const zombieBias = night ? 0.62 : 0.1;
       const passive = ["pig", "sheep", "cow"][(Math.random() * 3) | 0];
-      const type = Math.random() < zombieBias ? "zombie" : passive;
+      const hostile = Math.random() < 0.3 ? "creeper" : "zombie";
+      const type = Math.random() < zombieBias ? hostile : passive;
       const def = TYPES[type];
       const maxY = Math.min(60, Math.floor(player.pos.y) + 10);
       let y = maxY;
@@ -393,11 +501,33 @@ export class Mobs {
         }
       }
 
+      if (mob.def.explodes) {
+        if (mob.fuseTimer > 0) {
+          mob.fuseTimer -= dt;
+          const pulse = 1 + Math.sin((mob.def.fuse - mob.fuseTimer) * 18) * 0.13;
+          mob.container.scale.setScalar(pulse);
+          for (const mat of mob.mats) mat.emissive?.setHex(pulse > 1.06 ? 0x66ff66 : 0x000000);
+          speed = 0;
+          if (mob.fuseTimer <= 0) {
+            const ex = mob.pos.x;
+            const ey = mob.pos.y + 0.6;
+            const ez = mob.pos.z;
+            this.dispose(mob);
+            this.list = this.list.filter((m) => m !== mob);
+            this.onExplode?.(ex, ey, ez, mob.def.blast);
+            continue;
+          }
+        } else if (chasing && dist < mob.def.fuseRange && Math.abs(player.pos.y - mob.pos.y) < 2.5) {
+          mob.fuseTimer = mob.def.fuse;
+          this.sfx?.mob?.("creeper");
+        }
+      }
+
       mob.attackTimer -= dt;
       mob.soundTimer -= dt;
       if (mob.soundTimer <= 0) {
         mob.soundTimer = 4 + Math.random() * 6;
-        if (dist < 28) this.sfx?.mob?.(mob.def.sound);
+        if (dist < 28 && !mob.def.explodes) this.sfx?.mob?.(mob.def.sound);
       }
 
       if (speed > 0) {
@@ -504,6 +634,19 @@ export class Mobs {
       }
     }
     return best;
+  }
+
+  explode(x, y, z, radius) {
+    for (const mob of [...this.list]) {
+      if (mob.dead) continue;
+      const d = Math.hypot(mob.pos.x - x, mob.pos.y - y, mob.pos.z - z);
+      if (d > radius + 1.2) continue;
+      const dir = new THREE.Vector3(mob.pos.x - x, 0, mob.pos.z - z);
+      if (dir.lengthSq() < 1e-4) dir.set(1, 0, 0);
+      dir.normalize();
+      const damage = Math.max(3, Math.round((1 - Math.min(1, d / (radius + 1.2))) * 22));
+      this.damage(mob, damage, dir);
+    }
   }
 
   damage(mob, amount, dir) {

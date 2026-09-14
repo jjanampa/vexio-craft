@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { BLOCKS, faceTile } from "./blocks.js";
 import { isItem, iconTile } from "./items.js";
+import { getCharacter, skinTexture, skinRegions, applySkinUVs } from "./skins.js";
 
 function applyFaceUVs(geometry, uvs, id, rect = null) {
   const uv = geometry.attributes.uv;
@@ -28,7 +29,7 @@ function applyPlaneUVs(geometry, rect) {
 }
 
 export class Hand {
-  constructor(atlas, texture) {
+  constructor(atlas, texture, character = "steve") {
     this.atlas = atlas;
     this.texture = texture;
     this.scene = new THREE.Scene();
@@ -42,10 +43,24 @@ export class Hand {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x6f6f6f, 0.3));
 
     this.group = new THREE.Group();
-    this.rest = { x: 0.5, y: -0.32, z: -0.72 };
+    this.rest = { x: 0.58, y: -0.64, z: -0.2 };
+    this.restRot = { x: -0.74, y: -0.12, z: 0.05 };
     this.group.position.set(this.rest.x, this.rest.y, this.rest.z);
-    this.group.rotation.set(-0.14, -0.52, 0.1);
+    this.group.rotation.set(this.restRot.x, this.restRot.y, this.restRot.z);
     this.scene.add(this.group);
+
+    this.skinMaterial = new THREE.MeshLambertMaterial();
+    this.setCharacter(character);
+
+    this.arm = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.62, 0.26), this.skinMaterial);
+    applySkinUVs(this.arm.geometry, skinRegions("arm"));
+    this.arm.rotation.z = Math.PI;
+    this.arm.position.set(0, 0.31, 0);
+    this.group.add(this.arm);
+
+    this.handAnchor = new THREE.Group();
+    this.handAnchor.position.set(0, 0.68, 0);
+    this.group.add(this.handAnchor);
 
     this.mesh = null;
     this.heldId = -1;
@@ -53,6 +68,16 @@ export class Hand {
     this.bobPhase = 0;
     this.materials = new Map();
     this.itemMaterials = new Map();
+  }
+
+  setCharacter(character) {
+    const def = typeof character === "string" ? getCharacter(character) : character;
+    if (this.character === def.id) return;
+    this.character = def.id;
+    this.skinTexture?.dispose();
+    this.skinTexture = skinTexture(def);
+    this.skinMaterial.map = this.skinTexture;
+    this.skinMaterial.needsUpdate = true;
   }
 
   materialFor(id) {
@@ -88,7 +113,7 @@ export class Hand {
     if (id === this.heldId) return;
     this.heldId = id;
     if (this.mesh) {
-      this.group.remove(this.mesh);
+      this.handAnchor.remove(this.mesh);
       this.mesh.geometry.dispose();
       this.mesh = null;
     }
@@ -96,21 +121,22 @@ export class Hand {
     if (isItem(id)) {
       const rect = this.atlas.uvs[iconTile(id)];
       if (!rect) return;
-      const geometry = new THREE.PlaneGeometry(0.38, 0.38);
+      const geometry = new THREE.PlaneGeometry(0.34, 0.34);
       applyPlaneUVs(geometry, rect);
       const mesh = new THREE.Mesh(geometry, this.itemMaterial());
-      mesh.rotation.set(0.16, 0.55, 0.38);
-      mesh.position.set(0.02, 0.0, 0.02);
+      mesh.rotation.set(0.15, -0.35, 0.42);
+      mesh.position.set(0.0, 0.08, 0.0);
       this.mesh = mesh;
-      this.group.add(mesh);
+      this.handAnchor.add(mesh);
       return;
     }
     const geometry = new THREE.BoxGeometry(1, 1, 1);
     applyFaceUVs(geometry, this.atlas.uvs, id);
     const mesh = new THREE.Mesh(geometry, this.materialFor(id));
-    mesh.scale.setScalar(0.3);
+    mesh.scale.setScalar(0.28);
+    mesh.position.set(0, 0.14, -0.05);
     this.mesh = mesh;
-    this.group.add(mesh);
+    this.handAnchor.add(mesh);
   }
 
   triggerSwing() {
@@ -130,20 +156,20 @@ export class Hand {
     let rz = 0;
     let dy = 0;
     let dz = 0;
-    let ry = -0.52;
+    let ry = 0;
     if (this.swingTime >= 0) {
       const s = Math.sin(this.swingTime * Math.PI);
-      rx = -s * (heavy ? 1.35 : 1.05);
-      rz = s * (heavy ? 0.42 : 0.28);
-      dy = s * 0.1;
-      dz = s * (heavy ? 0.22 : 0.16);
-      if (heavy) ry += s * 0.22;
+      rx = -s * (heavy ? 0.85 : 0.65);
+      rz = s * (heavy ? 0.3 : 0.22);
+      ry = s * 0.14;
+      dy = s * 0.08;
+      dz = s * 0.14;
     }
     if (moving) this.bobPhase += dt * 7.5;
     const bob = Math.sin(this.bobPhase) * (moving ? 0.02 : 0);
     const sway = Math.cos(this.bobPhase * 0.5) * (moving ? 0.014 : 0);
     this.group.position.set(this.rest.x + sway, this.rest.y + bob + dy, this.rest.z + dz);
-    this.group.rotation.set(-0.14 + rx, ry, 0.1 + rz);
+    this.group.rotation.set(this.restRot.x + rx, this.restRot.y + ry, this.restRot.z + rz);
   }
 
   render(renderer) {

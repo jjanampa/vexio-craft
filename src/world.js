@@ -43,6 +43,9 @@ import {
   OBSIDIAN,
   IRON_ORE,
   DIAMOND_ORE,
+  GOLD_ORE,
+  PUMPKIN,
+  ICE,
   isSolid,
   isLiquid,
 } from "./blocks.js";
@@ -366,11 +369,13 @@ export class World {
             id = surface;
           } else if (y <= SEA_LEVEL) {
             id = WATER;
+            if (y === SEA_LEVEL && biome === "snowy" && h < SEA_LEVEL) id = ICE;
           }
           if (id === STONE && y > 3 && y < h - 2) {
             const cave = fbm3(wx * 0.09, y * 0.13, wz * 0.09, this.seed + 555, 2);
             if (cave > 0.635) id = AIR;
             else if (y < 46 && valueNoise3(wx * 0.16, y * 0.16, wz * 0.16, this.seed + 7777) > 0.86) id = IRON_ORE;
+            else if (y < 34 && valueNoise3(wx * 0.19, y * 0.19, wz * 0.19, this.seed + 9999) > 0.875) id = GOLD_ORE;
             else if (y < 18 && valueNoise3(wx * 0.21, y * 0.21, wz * 0.21, this.seed + 8888) > 0.91) id = DIAMOND_ORE;
           }
           if (id !== AIR) blocks[this.localIndex(lx, y, lz)] = id;
@@ -580,6 +585,10 @@ export class World {
         }
         const surface = this.getLocalBlockAt(chunk, wx, h, wz);
         if (surface !== GRASS && surface !== PODZOL && surface !== GRASS_SNOWY) continue;
+        if ((biome === "plains" || biome === "forest") && r < 0.004) {
+          this.stamp(chunk, wx, h + 1, wz, PUMPKIN);
+          continue;
+        }
         const pick = hash2(wx, wz, this.seed + 1236);
         let plant = TALL_GRASS;
         if (pick < 0.08) plant = FLOWER_RED;

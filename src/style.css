@@ -940,3 +940,63 @@ button:disabled {
     grid-template-columns: auto;
   }
 }
+
+.char-section {
+  margin: 18px auto 0;
+}
+
+.char-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  opacity: 0.6;
+  margin-bottom: 8px;
+}
+
+.char-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.panel .char-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 66px;
+  padding: 7px 4px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(8, 12, 20, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.panel .char-card:hover {
+  filter: brightness(1.2);
+  background: rgba(30, 40, 60, 0.75);
+  transform: none;
+}
+
+.panel .char-card:active {
+  transform: none;
+  box-shadow: none;
+}
+
+.panel .char-card img {
+  width: 42px;
+  height: 42px;
+  image-rendering: pixelated;
+  border-radius: 4px;
+}
+
+.panel .char-card.selected {
+  border-color: #b7f07a;
+  box-shadow: 0 0 0 2px rgba(183, 240, 122, 0.3);
+  background: rgba(35, 55, 35, 0.65);
+}

@@ -1,13 +1,14 @@
 import * as THREE from "three";
 import { ITEMS, isItem, iconTile } from "./items.js";
 import { BLOCKS, faceTile } from "./blocks.js";
+import { getCharacter, skinTexture, skinRegions, applySkinUVs } from "./skins.js";
 
 export const AVATAR_SKIN = 0xe0ac82;
 export const AVATAR_PANTS = 0x3b4a63;
-const PALETTE = [0x4f7fd8, 0xd85f4f, 0x58b32c, 0xd8a83f, 0x9a5fd8, 0x3fb8a8, 0xd85f9a, 0x8d99ae];
 
 export function paletteColor(seed) {
-  return PALETTE[Math.abs(seed) % PALETTE.length];
+  const list = [0x4f7fd8, 0xd85f4f, 0x58b32c, 0xd8a83f, 0x9a5fd8, 0x3fb8a8, 0xd85f9a, 0x8d99ae];
+  return list[Math.abs(seed) % list.length];
 }
 
 function applyFaceUVs(geometry, uvs, id) {
@@ -62,16 +63,7 @@ function box(w, h, d, material) {
 
 export class Avatar {
   constructor(options = {}) {
-    const {
-      name = "",
-      color = PALETTE[0],
-      texture = null,
-      atlas = null,
-      skin = AVATAR_SKIN,
-      shirt = color,
-      pants = AVATAR_PANTS,
-      armsForward = false,
-    } = options;
+    const { name = "", character = "steve", texture = null, atlas = null, armsForward = false } = options;
 
     this.texture = texture;
     this.atlas = atlas;
@@ -83,53 +75,55 @@ export class Avatar {
     this.speed = 0;
     this.heldId = -1;
     this.armorState = [0, 0, 0, 0];
-    this.materials = [];
 
     this.group = new THREE.Group();
     this.container = new THREE.Group();
     this.group.add(this.container);
 
-    const skinMat = this.track(new THREE.MeshLambertMaterial({ color: skin }));
-    const shirtMat = this.track(new THREE.MeshLambertMaterial({ color: shirt }));
-    const pantsMat = this.track(new THREE.MeshLambertMaterial({ color: pants }));
-
-    this.parts = {};
+    this.skinMaterial = new THREE.MeshLambertMaterial();
+    this.setCharacter(character);
 
     const legL = new THREE.Group();
     legL.position.set(-0.16, 0.7, 0);
-    const legLMesh = box(0.24, 0.7, 0.24, pantsMat);
+    const legLMesh = box(0.24, 0.7, 0.24, this.skinMaterial);
+    applySkinUVs(legLMesh.geometry, skinRegions("leg"));
     legLMesh.position.y = -0.35;
     legL.add(legLMesh);
-    this.parts.legL = legL;
+    this.parts = { legL };
 
     const legR = new THREE.Group();
     legR.position.set(0.16, 0.7, 0);
-    const legRMesh = box(0.24, 0.7, 0.24, pantsMat);
+    const legRMesh = box(0.24, 0.7, 0.24, this.skinMaterial);
+    applySkinUVs(legRMesh.geometry, skinRegions("leg"));
     legRMesh.position.y = -0.35;
     legR.add(legRMesh);
     this.parts.legR = legR;
 
-    const bodyMesh = box(0.62, 0.7, 0.34, shirtMat);
+    const bodyMesh = box(0.62, 0.7, 0.34, this.skinMaterial);
+    applySkinUVs(bodyMesh.geometry, skinRegions("body"));
     bodyMesh.position.y = 1.05;
     this.parts.body = bodyMesh;
 
     const armL = new THREE.Group();
     armL.position.set(-0.4, 1.35, 0);
-    const armLMesh = box(0.18, 0.7, 0.18, shirtMat);
+    const armLMesh = box(0.18, 0.7, 0.18, this.skinMaterial);
+    applySkinUVs(armLMesh.geometry, skinRegions("arm"));
     armLMesh.position.y = -0.35;
     armL.add(armLMesh);
     this.parts.armL = armL;
 
     const armR = new THREE.Group();
     armR.position.set(0.4, 1.35, 0);
-    const armRMesh = box(0.18, 0.7, 0.18, shirtMat);
+    const armRMesh = box(0.18, 0.7, 0.18, this.skinMaterial);
+    applySkinUVs(armRMesh.geometry, skinRegions("arm"));
     armRMesh.position.y = -0.35;
     armR.add(armRMesh);
     this.parts.armR = armR;
 
     const head = new THREE.Group();
     head.position.set(0, 1.4, 0);
-    const headMesh = box(0.5, 0.5, 0.5, skinMat);
+    const headMesh = box(0.5, 0.5, 0.5, this.skinMaterial);
+    applySkinUVs(headMesh.geometry, skinRegions("head"));
     headMesh.position.y = 0.25;
     head.add(headMesh);
     this.parts.head = head;
@@ -148,9 +142,16 @@ export class Avatar {
     }
   }
 
-  track(material) {
-    this.materials.push(material);
-    return material;
+  setCharacter(character) {
+    const def = typeof character === "string" ? getCharacter(character) : character || getCharacter("steve");
+    if (this.character && this.character.id === def.id) return;
+    this.character = def;
+    if (this.skinTexture) this.skinTexture.dispose();
+    this.skinTexture = skinTexture(def);
+    if (this.skinMaterial) {
+      this.skinMaterial.map = this.skinTexture;
+      this.skinMaterial.needsUpdate = true;
+    }
   }
 
   setName(text) {
@@ -184,9 +185,12 @@ export class Avatar {
         uv.setXY(i, rect.u0 + u * (rect.u1 - rect.u0), rect.v0 + v * (rect.v1 - rect.v0));
       }
       uv.needsUpdate = true;
-      const material = this.track(
-        new THREE.MeshLambertMaterial({ map: this.texture, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide })
-      );
+      const material = new THREE.MeshLambertMaterial({
+        map: this.texture,
+        transparent: true,
+        alphaTest: 0.5,
+        side: THREE.DoubleSide,
+      });
       material.userData.shared = true;
       const mesh = new THREE.Mesh(geometry, material);
       mesh.rotation.set(0.15, Math.PI / 2, -0.45);
@@ -198,14 +202,12 @@ export class Avatar {
     const def = BLOCKS[id];
     const geometry = new THREE.BoxGeometry(1, 1, 1);
     if (this.atlas) applyFaceUVs(geometry, this.atlas.uvs, id);
-    const material = this.track(
-      new THREE.MeshLambertMaterial({
-        map: this.texture,
-        transparent: !!def?.liquid,
-        opacity: def?.liquid ? 0.78 : 1,
-        alphaTest: def && !def.opaque && !def.liquid ? 0.5 : 0,
-      })
-    );
+    const material = new THREE.MeshLambertMaterial({
+      map: this.texture,
+      transparent: !!def?.liquid,
+      opacity: def?.liquid ? 0.78 : 1,
+      alphaTest: def && !def.opaque && !def.liquid ? 0.5 : 0,
+    });
     material.userData.shared = true;
     const mesh = new THREE.Mesh(geometry, material);
     mesh.scale.setScalar(0.3);
@@ -305,5 +307,6 @@ export class Avatar {
         child.material.dispose();
       }
     });
+    this.skinTexture?.dispose();
   }
 }

@@ -32,14 +32,22 @@ Juego voxel estilo Minecraft en el navegador (Three.js + Vite), desplegado en ht
   - Criaturas: nueva vaca (carne y cuero), drops al morir para cerdo/oveja/zombi y ahogamiento con burbujas de oxígeno.
   - Guardado de inventario, hambre y armadura por partida.
 
-## Siguientes ideas (etapa 9)
+- [x] **9. Personajes estilo Minecraft y más contenido**:
+  - Skins procedurales 64×64 con formato Minecraft (cara con ojos y boca, pelo, camiseta, pantalones y zapatos) aplicadas a los avatares y al brazo en primera persona.
+  - 8 personajes seleccionables en el menú (Steve, Alex, Bruno, Luna, Kai, Nova, Max y Vera) con vista previa de la cara, guardado local y sincronización con el servidor para que los demás lo vean.
+  - Bloques nuevos: mena de oro, bloques de hierro/oro/diamante, mesa de crafteo, horno, TNT, calabaza y hielo (congela lagos de biomas nevados).
+  - TNT: se enciende al golpearla, mecha de 3 s parpadeante, explosión con cráter, partículas, daño y empuje; reacciones en cadena y sincronización multijugador (mensajes prime/boom + cola de ediciones).
+  - Creeper: criatura hostil que persigue, se infla con un silbido y explota; suelta pólvora.
+  - Crafteo ampliado a 43 recetas, incluidos bloques metálicos (ida y vuelta), mesa de crafteo, horno y TNT.
 
-- [ ] Horno y cocinar carne (más alimento).
+## Siguientes ideas (etapa 10)
+
+- [ ] Horno funcional para cocinar carne y fundir menas.
 - [ ] Durabilidad de herramientas y armadura.
+- [ ] Aldeanos, cofres y camas.
 - [ ] Chat de texto entre jugadores.
 - [ ] Sincronizar hora del día y clima desde el servidor.
 - [ ] Inventario persistente por jugador en el servidor y criaturas sincronizadas.
-- [ ] Panel de administración (expulsar, banear, cambiar semilla en vivo).
 
 ## Desarrollo local
 

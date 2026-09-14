@@ -10,6 +10,7 @@ import {
   recipeAvailable,
 } from "./items.js";
 import { drawTileIcon } from "./textures.js";
+import { CHARACTERS, headDataUrl } from "./skins.js";
 import { IS_TOUCH } from "./config.js";
 
 function escapeHtml(value) {
@@ -38,6 +39,7 @@ export class UI {
       onCloseInventory,
       onCraft,
       onInventoryChanged,
+      onCharacterChange,
     } = options;
 
     this.atlas = atlas;
@@ -55,6 +57,8 @@ export class UI {
     this.onCloseInventory = onCloseInventory;
     this.onCraft = onCraft;
     this.onInventoryChanged = onInventoryChanged;
+    this.onCharacterChange = onCharacterChange;
+    this.character = "steve";
     this.multiplayer = false;
     this.onlineCount = 0;
     this.playerName = "";
@@ -193,6 +197,40 @@ export class UI {
     this.seed = seed;
     const el = document.getElementById("menu-seed");
     if (el) el.textContent = seed;
+  }
+
+  renderCharacterPicker(container) {
+    if (!container) return;
+    container.innerHTML = "";
+    this.charButtons = new Map();
+    for (const character of CHARACTERS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "char-card" + (character.id === this.character ? " selected" : "");
+      button.dataset.id = character.id;
+      const img = document.createElement("img");
+      img.src = headDataUrl(character.id);
+      img.alt = character.name;
+      img.draggable = false;
+      const name = document.createElement("span");
+      name.textContent = character.name;
+      button.appendChild(img);
+      button.appendChild(name);
+      button.addEventListener("click", () => {
+        this.setCharacter(character.id);
+        this.onCharacterChange?.(character.id);
+      });
+      container.appendChild(button);
+      this.charButtons.set(character.id, button);
+    }
+  }
+
+  setCharacter(id) {
+    this.character = id;
+    if (!this.charButtons) return;
+    for (const [key, button] of this.charButtons) {
+      button.classList.toggle("selected", key === id);
+    }
   }
 
   setPlayerName(name) {
@@ -701,6 +739,10 @@ export class UI {
       panel.innerHTML = `
         <h1>VEXIO CRAFT</h1>
         <p class="sub">Mundo infinito en tu navegador · semilla <b id="menu-seed">${this.seed}</b>${IS_TOUCH ? " · mejor en horizontal" : ""}</p>
+        <div class="char-section">
+          <div class="char-label">Elige tu personaje</div>
+          <div class="char-list" id="menu-chars"></div>
+        </div>
         <label class="name-field">Tu nombre
           <input id="name-input" maxlength="16" autocomplete="off" spellcheck="false" value="${escapeHtml(this.playerName)}" />
         </label>
@@ -712,6 +754,7 @@ export class UI {
         </div>
       `;
       this.menu.appendChild(panel);
+      this.renderCharacterPicker(panel.querySelector("#menu-chars"));
       this.renderControls(panel.querySelector("#menu-controls"), this.mode);
       panel.querySelector("#btn-play").addEventListener("click", () => this.onContinue?.());
       panel.querySelector("#name-input").addEventListener("change", (event) => {

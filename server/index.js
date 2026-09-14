@@ -157,6 +157,7 @@ function publicPlayer(p) {
     dim: p.dim,
     item: p.item,
     armor: p.armor,
+    character: p.character,
   };
 }
 
@@ -222,12 +223,17 @@ wss.on("connection", (ws, req) => {
     dim: "overworld",
     item: 0,
     armor: [0, 0, 0, 0],
+    character: "steve",
     stateStart: 0,
     stateCount: 0,
     editStart: 0,
     editCount: 0,
     animStart: 0,
     animCount: 0,
+    primeStart: 0,
+    primeCount: 0,
+    boomStart: 0,
+    boomCount: 0,
   };
   players.set(ws, player);
 
@@ -252,6 +258,7 @@ wss.on("connection", (ws, req) => {
       player.z = Math.max(-COORD_LIMIT, Math.min(COORD_LIMIT, z));
       player.yaw = yaw;
       player.pitch = pitch;
+      if (typeof msg.character === "string" && /^[a-z0-9_-]{1,16}$/.test(msg.character)) player.character = msg.character;
       if (Number.isInteger(msg.item) && msg.item >= 0 && msg.item <= 65535) player.item = msg.item;
       if (
         Array.isArray(msg.armor) &&
@@ -297,6 +304,23 @@ wss.on("connection", (ws, req) => {
       if (!withinRate(player, "anim", 10)) return;
       if (msg.a !== "swing") return;
       broadcastDim(player.dim, { t: "anim", id: player.id, a: "swing" }, ws);
+      return;
+    }
+
+    if (msg.t === "prime") {
+      if (!withinRate(player, "prime", 6)) return;
+      const { x, y, z } = msg;
+      if (!validEdit(x, y, z, 0)) return;
+      broadcastDim(player.dim, { t: "prime", x, y, z }, ws);
+      return;
+    }
+
+    if (msg.t === "boom") {
+      if (!withinRate(player, "boom", 4)) return;
+      const { x, y, z, r } = msg;
+      if (!validEdit(x, y, z, 0)) return;
+      if (!Number.isInteger(r) || r < 1 || r > 8) return;
+      broadcastDim(player.dim, { t: "boom", x, y, z, r }, ws);
       return;
     }
 

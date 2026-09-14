@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { Avatar, paletteColor } from "./avatar.js";
+import { Avatar } from "./avatar.js";
+import { characterIdForSeed } from "./skins.js";
 
 const STALE_MS = 8000;
 
@@ -18,9 +19,10 @@ export class RemotePlayers {
   upsert(data) {
     let entry = this.map.get(data.id);
     if (!entry) {
+      const character = typeof data.character === "string" ? data.character : characterIdForSeed(data.id);
       const avatar = new Avatar({
         name: data.name,
-        color: paletteColor(data.id),
+        character,
         atlas: this.atlas,
         texture: this.texture,
       });
@@ -32,6 +34,7 @@ export class RemotePlayers {
         pitch: data.pitch ?? 0,
         lastSeen: performance.now(),
         name: data.name,
+        character,
         speed: 0,
         item: -1,
         armor: [0, 0, 0, 0],
@@ -46,6 +49,11 @@ export class RemotePlayers {
       entry.lastSeen = performance.now();
     }
 
+    const character = typeof data.character === "string" ? data.character : characterIdForSeed(data.id);
+    if (entry.character !== character) {
+      entry.character = character;
+      entry.avatar.setCharacter(character);
+    }
     const item = Number.isInteger(data.item) ? data.item : 0;
     if (entry.item !== item) {
       entry.item = item;

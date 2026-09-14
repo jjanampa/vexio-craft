@@ -158,7 +158,21 @@ export class Sfx {
     this.tone({ type: "triangle", from: 520, to: 780, dur: 0.12, gain: 0.05, delay: 0.05 });
   }
 
+  fuse() {
+    this.noiseBurst({ dur: 1.8, freq: 3200, q: 0.5, type: "highpass", gain: 0.09, attack: 0.3 });
+  }
+
+  explosion() {
+    this.noiseBurst({ dur: 1.1, freq: 180, q: 0.6, type: "lowpass", gain: 0.5, sweep: 0.25, attack: 0.01 });
+    this.noiseBurst({ dur: 0.4, freq: 900, q: 0.4, type: "lowpass", gain: 0.35 });
+    this.tone({ type: "triangle", from: 90, to: 32, dur: 0.7, gain: 0.28 });
+  }
+
   mob(kind) {
+    if (kind === "creeper") {
+      this.noiseBurst({ dur: 0.9, freq: 4200, q: 0.5, type: "highpass", gain: 0.1, attack: 0.15 });
+      return;
+    }
     if (kind === "zombie") {
       this.tone({ type: "sawtooth", from: 110, to: 70, dur: 0.7, gain: 0.1, vibrato: 14, vibratoRate: 5 });
       this.noiseBurst({ dur: 0.6, freq: 380, q: 0.7, type: "lowpass", gain: 0.07 });

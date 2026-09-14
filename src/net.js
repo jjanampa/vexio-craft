@@ -87,6 +87,12 @@ export class Net {
       case "anim":
         this.handlers.onSwing?.(msg.id, msg.a);
         break;
+      case "prime":
+        this.handlers.onPrime?.(msg.x, msg.y, msg.z);
+        break;
+      case "boom":
+        this.handlers.onBoom?.(msg.x, msg.y, msg.z, msg.r);
+        break;
     }
   }
 
@@ -95,8 +101,8 @@ export class Net {
     this.ws.send(JSON.stringify(message));
   }
 
-  sendState(x, y, z, yaw, pitch, dim, item, armor) {
-    this.send({ t: "state", x, y, z, yaw, pitch, dim, item, armor });
+  sendState(x, y, z, yaw, pitch, dim, item, armor, character) {
+    this.send({ t: "state", x, y, z, yaw, pitch, dim, item, armor, character });
   }
 
   sendEdit(x, y, z, id, dim) {
@@ -105,6 +111,14 @@ export class Net {
 
   sendSwing() {
     this.send({ t: "anim", a: "swing" });
+  }
+
+  sendPrime(x, y, z) {
+    this.send({ t: "prime", x, y, z });
+  }
+
+  sendBoom(x, y, z, r) {
+    this.send({ t: "boom", x, y, z, r });
   }
 
   sendDim(dim, x, y, z) {

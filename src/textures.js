@@ -4,7 +4,7 @@ const TILE = 16;
 const PAD = 4;
 const CELL = TILE + PAD * 2;
 const COLS = 8;
-const ROWS = 15;
+const ROWS = 17;
 
 function fill(ctx, s, color) {
   ctx.fillStyle = color;
@@ -1063,6 +1063,173 @@ Object.assign(PAINTERS, {
     }
     ctx.clearRect(3, 3, 2, 2);
     ctx.clearRect(11, 11, 2, 2);
+  },
+
+  gold_ingot(ctx, s) {
+    ctx.clearRect(0, 0, s, s);
+    rect(ctx, 3, 6, 10, 5, "#f0cc38");
+    rect(ctx, 4, 5, 8, 1, "#ffe98a");
+    rect(ctx, 3, 10, 10, 1, "#b58f20");
+    rect(ctx, 3, 6, 1, 5, "#fff0a0");
+    rect(ctx, 12, 6, 1, 5, "#c9a028");
+    rect(ctx, 5, 7, 3, 1, "#fff8d0");
+  },
+
+  gunpowder(ctx, s, rng) {
+    ctx.clearRect(0, 0, s, s);
+    for (let i = 0; i < 34; i++) {
+      const x = 3 + ((rng() * 10) | 0);
+      const y = 6 + ((rng() * 7) | 0);
+      px_(ctx, x, y, rng() < 0.4 ? "#2f2f2f" : rng() < 0.7 ? "#6a6a6a" : "#9a9a9a");
+    }
+    rect(ctx, 4, 10, 8, 3, "#4a4a4a");
+    for (let i = 0; i < 8; i++) {
+      px_(ctx, 4 + ((rng() * 8) | 0), 10 + ((rng() * 3) | 0), rng() < 0.5 ? "#8a8a8a" : "#2f2f2f");
+    }
+  },
+
+  ice(ctx, s, rng) {
+    fill(ctx, s, "#a8d8f0");
+    noiseFill(ctx, rng, s, ["#a8d8f0", "#b5e0f5", "#9ccfe8", "#c2e8fa"], "#8fc0dd", "#d8f2ff", 0.12, 0.12);
+    for (let i = 0; i < 4; i++) {
+      const x = (rng() * (s - 5)) | 0;
+      const y = (rng() * (s - 5)) | 0;
+      rect(ctx, x, y, 4, 1, "rgba(255,255,255,0.55)");
+      px_(ctx, x + 1, y + 1, "rgba(255,255,255,0.4)");
+    }
+  },
+});
+
+function metalBlockPainter(base, light, dark, accents) {
+  return (ctx, s, rng) => {
+    fill(ctx, s, base);
+    rect(ctx, 0, 0, s, 1, light);
+    rect(ctx, 0, 0, 1, s, light);
+    rect(ctx, 0, s - 1, s, 1, dark);
+    rect(ctx, s - 1, 0, 1, s, dark);
+    rect(ctx, 3, 3, s - 6, 1, "rgba(255,255,255,0.22)");
+    rect(ctx, 3, s - 4, s - 6, 1, "rgba(0,0,0,0.2)");
+    if (accents) {
+      for (const [x, y] of accents) {
+        rect(ctx, x, y, 2, 2, light);
+        px_(ctx, x + 2, y + 2, dark);
+      }
+    } else {
+      for (let i = 0; i < 5; i++) {
+        rect(ctx, 4 + ((rng() * 8) | 0), 4 + ((rng() * 8) | 0), 2, 1, "rgba(255,255,255,0.25)");
+      }
+    }
+  };
+}
+
+Object.assign(PAINTERS, {
+  gold_ore: orePainter(["#d8b02f", "#f0cc48", "#b58f20"]),
+  iron_block: metalBlockPainter("#d8d8d8", "#f5f5f5", "#9a9a9a", null),
+  gold_block: metalBlockPainter("#f0cc38", "#fff0a0", "#b58f20", null),
+  diamond_block: metalBlockPainter("#4fd8c8", "#a5f5ec", "#2a9a8c", [
+    [3, 3],
+    [9, 3],
+    [6, 6],
+    [3, 9],
+    [9, 9],
+  ]),
+
+  crafting_table_top(ctx, s, rng) {
+    PAINTERS.planks(ctx, s, rng);
+    rect(ctx, 0, 0, s, 1, "rgba(60,40,20,0.65)");
+    rect(ctx, 0, 0, 1, s, "rgba(60,40,20,0.65)");
+    for (let i = 5; i < s; i += 5) {
+      rect(ctx, i, 0, 1, s, "rgba(60,40,20,0.5)");
+      rect(ctx, 0, i, s, 1, "rgba(60,40,20,0.5)");
+    }
+  },
+
+  crafting_table_side(ctx, s, rng) {
+    PAINTERS.planks(ctx, s, rng);
+    rect(ctx, 0, 4, s, 5, "rgba(96,64,32,0.9)");
+    rect(ctx, 0, 4, s, 1, "rgba(160,120,70,0.8)");
+    rect(ctx, 2, 6, 4, 2, "#c8c8c8");
+    rect(ctx, 2, 6, 4, 1, "#f0f0f0");
+    rect(ctx, 9, 6, 2, 3, "#7a5230");
+    rect(ctx, 8, 5, 4, 2, "#b0b0b0");
+    rect(ctx, 8, 5, 4, 1, "#e0e0e0");
+  },
+
+  furnace_side(ctx, s, rng) {
+    PAINTERS.cobble(ctx, s, rng);
+    for (let i = 0; i < 20; i++) {
+      rect(ctx, (rng() * s) | 0, (rng() * s) | 0, 1, 1, "rgba(30,30,30,0.35)");
+    }
+  },
+
+  furnace_top(ctx, s, rng) {
+    PAINTERS.cobble(ctx, s, rng);
+    rect(ctx, 5, 5, 6, 6, "#4a4a4a");
+    rect(ctx, 6, 6, 4, 4, "#2a2a2a");
+    rect(ctx, 6, 6, 4, 1, "#5a5a5a");
+  },
+
+  furnace_front(ctx, s, rng) {
+    PAINTERS.cobble(ctx, s, rng);
+    rect(ctx, 3, 6, 10, 8, "#2a2a2a");
+    rect(ctx, 4, 7, 8, 6, "#1a1a1a");
+    rect(ctx, 4, 11, 8, 2, "#c96b1a");
+    rect(ctx, 5, 12, 6, 1, "#f0a83a");
+    rect(ctx, 6, 11, 4, 1, "#ffd15c");
+    rect(ctx, 3, 4, 10, 1, "#6a6a6a");
+  },
+
+  tnt_side(ctx, s, rng) {
+    fill(ctx, s, "#b53a30");
+    noiseFill(ctx, rng, s, ["#b53a30", "#ab352c", "#c04336", "#a03028"], "#8f2a22", "#cc5145", 0.1, 0.1);
+    rect(ctx, 0, 0, s, 2, "#8f2a22");
+    rect(ctx, 0, s - 2, s, 2, "#8f2a22");
+    rect(ctx, 0, 5, s, 7, "#e8e0d0");
+    rect(ctx, 0, 5, s, 1, "#ffffff");
+    rect(ctx, 0, 11, s, 1, "#b8b0a0");
+    const letter = (x) => {
+      rect(ctx, x, 6, 3, 1, "#3a3028");
+      rect(ctx, x + 1, 7, 1, 3, "#3a3028");
+    };
+    letter(1);
+    rect(ctx, 5, 6, 1, 4, "#3a3028");
+    rect(ctx, 7, 6, 1, 4, "#3a3028");
+    px_(ctx, 6, 7, "#3a3028");
+    px_(ctx, 6, 8, "#3a3028");
+    letter(9);
+    rect(ctx, 13, 6, 1, 4, "#3a3028");
+  },
+
+  tnt_top(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#b53a30", "#ab352c", "#c04336"], "#8f2a22", "#cc5145", 0.1, 0.1);
+    rect(ctx, 5, 5, 6, 6, "#5a3a28");
+    rect(ctx, 6, 6, 4, 4, "#3a2518");
+    rect(ctx, 7, 7, 2, 2, "#d8d0c0");
+    rect(ctx, 3, 3, 10, 1, "rgba(0,0,0,0.25)");
+  },
+
+  tnt_bottom(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#8f2a22", "#86271f", "#982f26"], "#701f18", "#a83a2e", 0.12, 0.1);
+  },
+
+  pumpkin_top(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#d87a1f", "#cc7018", "#e08428"], "#b5600f", "#f09840", 0.12, 0.1);
+    rect(ctx, 0, 0, s, 1, "#7a5220");
+    rect(ctx, 0, 0, 1, s, "#7a5220");
+    rect(ctx, 0, s - 1, s, 1, "#7a5220");
+    rect(ctx, s - 1, 0, 1, s, "#7a5220");
+    rect(ctx, 6, 6, 4, 4, "#6a8a30");
+    rect(ctx, 7, 7, 2, 2, "#8aa840");
+  },
+
+  pumpkin_side(ctx, s, rng) {
+    noiseFill(ctx, rng, s, ["#d87a1f", "#cc7018", "#e08428", "#c46a14"], "#a85a0e", "#f0a040", 0.1, 0.1);
+    for (let x = 2; x < s; x += 5) {
+      rect(ctx, x, 1, 1, s - 2, "rgba(140,70,10,0.5)");
+      rect(ctx, x + 1, 1, 1, s - 2, "rgba(255,190,110,0.22)");
+    }
+    rect(ctx, 0, 0, s, 1, "#7a5220");
+    rect(ctx, 0, s - 1, s, 1, "#7a5220");
   },
 });
 
